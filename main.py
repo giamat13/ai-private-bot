@@ -50,6 +50,34 @@ def save_settings(user_id: int, data: dict):
     with open(settings_path(user_id), 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=True, indent=2)
 
+# --- סטטיסטיקות שימוש ---
+
+def stats_path(user_id: int) -> str:
+    return os.path.join(get_user_dir(user_id), "stats.json")
+
+def load_stats(user_id: int) -> dict:
+    p = stats_path(user_id)
+    if os.path.exists(p):
+        try:
+            with open(p, 'r', encoding='utf-8') as f: return json.load(f)
+        except: pass
+    return {"total_messages": 0, "models": {}, "first_use": None, "last_use": None}
+
+def save_stats(user_id: int, data: dict):
+    with open(stats_path(user_id), 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=True, indent=2)
+
+def track_usage(user_id: int, model_name: str):
+    """מתעד שימוש — קוראים לזה אחרי כל תשובה מוצלחת."""
+    stats = load_stats(user_id)
+    now   = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    stats["total_messages"] += 1
+    stats["models"][model_name] = stats["models"].get(model_name, 0) + 1
+    if not stats["first_use"]:
+        stats["first_use"] = now
+    stats["last_use"] = now
+    save_stats(user_id, stats)
+
 def chat_path(user_id: int, chat_name: str) -> str:
     """מסלול קובץ ה-JSON של צ'אט לפי שם."""
     safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in chat_name).strip()
@@ -350,12 +378,15 @@ def get_ai_response_universal(model_name, messages, user_id: int = None):
 
     actual_api_id = info.get("api_id", model_name)
 
-    # בנה system prompt — כולל זיכרון אם קיים
+    # בנה system prompt — כולל זיכרון ו-tone אם קיימים
     base_system = "You are a helpful assistant. Respond in Hebrew. Be accurate."
     if user_id:
         mem_prompt = memory_system_prompt(user_id)
         if mem_prompt:
             base_system = base_system + "\n\n" + mem_prompt
+        tone_prompt = tone_system_prompt(user_id)
+        if tone_prompt:
+            base_system = base_system + "\n\n" + tone_prompt
 
     # timeout לפי גודל מודל
     timeout_sec = 180 if model_name in HEAVY_MODELS else 90
@@ -575,12 +606,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             current_model = select_model_by_keywords(user_text)
 
         history = load_chat(user.id, active_chat)
+
+        # שמור snapshot ב-undo stack לפני הוספת ההודעה החדשה
+        _push_undo(context, history)
+
         history.append({"role": "user", "content": user_text})
 
         ai_response = get_ai_response_universal(current_model, history, user_id=user.id)
 
         history.append({"role": "assistant", "content": ai_response})
         save_chat(user.id, active_chat, history)
+        track_usage(user.id, current_model)
 
         if model_name == "auto":
             profile = MODEL_PROFILES.get(current_model, {})
@@ -743,6 +779,10 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # --- שמור בהיסטוריה כטקסט (base64 לא נשמר — גדול מדי) ---
         history = load_chat(user.id, active_chat)
+
+        # שמור snapshot ב-undo stack לפני הוספת ההודעה
+        _push_undo(context, history)
+
         history_entry = caption if caption else f"[שלח {filename}]"
         history.append({"role": "user", "content": history_entry})
 
@@ -1029,6 +1069,7 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 *מודל AI*",
         "`/model` — הצגת כל המודלים הזמינים",
         "`/model <שם>` — החלפת מודל",
+        "`/tone [סגנון]` — שינוי סגנון תשובה (קצר/מפורט/ידידותי/רשמי/הומור)",
         "",
         "🧠 *זיכרון*",
         "`/remember <עובדה>` — שמירת מידע לזיכרון קבוע",
@@ -1037,8 +1078,10 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "",
         "📋 *כללי*",
         "`/status` — מידע על המצב הנוכחי",
+        "`/stats` — סטטיסטיקות שימוש",
         "`/retry` — שליחה מחדש של ההודעה האחרונה",
-        "`/undo` — ביטול ההודעה האחרונה",
+        "`/undo` — ביטול ההודעה האחרונה (ניתן כמה פעמים)",
+        "`/redo` — שחזור מה שבוטל עם /undo",
         "`/summarize` — סיכום הצ'אט הפעיל",
         "`/export [שם צ'אט]` — ייצוא צ'אט כקובץ .txt",
         "`/cancel` — ביטול פעולה נוכחית",
@@ -1160,11 +1203,32 @@ async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
-#  /undo
+#  /undo  /redo  — ביטול וחזרה על הודעות
 # ─────────────────────────────────────────────
+#
+#  context.user_data["undo_stack"] = [snapshot1, snapshot2, ...]
+#  context.user_data["redo_stack"] = [snapshot1, snapshot2, ...]
+#  כל snapshot = עותק של ההיסטוריה לפני הפעולה
+#  הstack מתאפס כשמשתמש שולח הודעה חדשה (redo כבר לא רלוונטי)
+
+def _push_undo(context: ContextTypes.DEFAULT_TYPE, history: list):
+    """שומר snapshot של ההיסטוריה ב-undo stack."""
+    stack = context.user_data.setdefault("undo_stack", [])
+    stack.append([m.copy() for m in history])
+    # מגביל ל-20 שלבים
+    if len(stack) > 20:
+        stack.pop(0)
+    # הודעה חדשה — redo כבר לא רלוונטי
+    context.user_data["redo_stack"] = []
+
+def _clear_redo(context: ContextTypes.DEFAULT_TYPE):
+    """מאפס את redo stack (קורה כשמשתמש שולח הודעה חדשה)."""
+    context.user_data["redo_stack"] = []
+    context.user_data.setdefault("undo_stack", [])
+
 
 async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """מחיקת ההודעה האחרונה של המשתמש + תשובת הבוט שלאחריה."""
+    """↩️ ביטול ההודעה האחרונה (ניתן לחזור על כמה פעמים)."""
     user = update.effective_user
     if not is_authorized(user): return
 
@@ -1176,30 +1240,83 @@ async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ ההיסטוריה ריקה — אין מה לבטל.")
         return
 
-    # הסר את תשובת הבוט האחרונה (אם קיימת)
+    # שמור את המצב הנוכחי ב-redo stack לפני השינוי
+    redo_stack = context.user_data.setdefault("redo_stack", [])
+    redo_stack.append([m.copy() for m in history])
+
+    # הסר תשובת בוט + הודעת משתמש אחרונות
     removed = []
     if history and history[-1]["role"] == "assistant":
         removed.append(history.pop())
-    # הסר את הודעת המשתמש האחרונה (אם קיימת)
     if history and history[-1]["role"] == "user":
         removed.append(history.pop())
 
     if not removed:
+        redo_stack.pop()  # לא השתנה כלום — בטל את ה-redo שהוספנו
         await update.message.reply_text("⚠️ אין הודעה לביטול.")
         return
 
     save_chat(user.id, active_chat, history)
 
-    # הצג מה נמחק
+    # עדכן undo stack — הסר את ה-snapshot האחרון אם קיים
+    undo_stack = context.user_data.setdefault("undo_stack", [])
+    if undo_stack:
+        undo_stack.pop()
+
+    # תצוגה מקדימה של מה שבוטל
     user_msg = next((m for m in removed if m["role"] == "user"), None)
     content  = user_msg.get("content", "") if user_msg else ""
     if isinstance(content, list):
         content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
-    preview = content[:60] + ("..." if len(content) > 60 else "")
-
+    preview   = content[:60] + ("..." if len(content) > 60 else "")
     remaining = len([m for m in history if m["role"] == "user"])
+    redo_count = len(redo_stack)
+
     await update.message.reply_text(
-        f"↩️ בוטל: _{preview}_\n\n_נשארו {remaining} הודעות בצ'אט_",
+        f"↩️ בוטל: _{preview}_\n"
+        f"_נשארו {remaining} הודעות_ | "
+        f"_ניתן לעשות /redo ({redo_count} שלבים שמורים)_",
+        parse_mode="Markdown"
+    )
+
+
+async def cmd_redo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """↪️ חזרה על פעולה שבוטלה עם /undo."""
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    ensure_default_chat(user.id)
+    active_chat = get_active_chat(user.id)
+    history     = load_chat(user.id, active_chat)
+
+    redo_stack = context.user_data.get("redo_stack", [])
+    if not redo_stack:
+        await update.message.reply_text("⚠️ אין מה לשחזר. /redo זמין רק אחרי /undo.")
+        return
+
+    # שמור מצב נוכחי ב-undo stack
+    undo_stack = context.user_data.setdefault("undo_stack", [])
+    undo_stack.append([m.copy() for m in history])
+    if len(undo_stack) > 20:
+        undo_stack.pop(0)
+
+    # שחזר snapshot
+    restored = redo_stack.pop()
+    save_chat(user.id, active_chat, restored)
+
+    # תצוגה מקדימה של מה שחזר
+    user_msgs = [m for m in restored if m["role"] == "user"]
+    last_user = user_msgs[-1] if user_msgs else None
+    content   = last_user.get("content", "") if last_user else ""
+    if isinstance(content, list):
+        content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+    preview   = content[:60] + ("..." if len(content) > 60 else "")
+    remaining = len(user_msgs)
+
+    await update.message.reply_text(
+        f"↪️ שוחזר: _{preview}_\n"
+        f"_נשארו {remaining} הודעות_ | "
+        f"_ניתן לעשות /undo ({len(undo_stack)} שלבים שמורים)_",
         parse_mode="Markdown"
     )
 
@@ -1595,6 +1712,133 @@ async def cmd_memories(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
+#  /tone  — שינוי סגנון תשובה
+# ─────────────────────────────────────────────
+
+TONES = {
+    "רגיל":    {"desc": "ברירת מחדל — מאוזן",           "prompt": ""},
+    "קצר":     {"desc": "תשובות קצרות וענייניות",        "prompt": "ענה בקצרה ובתמציתיות. אל תרחיב מעבר לנחוץ."},
+    "מפורט":   {"desc": "הסברים מעמיקים ומלאים",         "prompt": "הסבר בפירוט רב, כלול דוגמאות והקשר."},
+    "ידידותי": {"desc": "סגנון חם ונעים",                "prompt": "ענה בסגנון חם, ידידותי ועידוד. השתמש בשפה פשוטה."},
+    "רשמי":    {"desc": "שפה מקצועית ורשמית",            "prompt": "ענה בשפה מקצועית ורשמית. הימנע מביטויים מזדמנים."},
+    "הומור":   {"desc": "תשובות עם נגיעת הומור",         "prompt": "הוסף נגיעת הומור קלה לתשובות מבלי לפגוע באיכות."},
+}
+
+def tone_path(user_id: int) -> str:
+    return os.path.join(get_user_dir(user_id), "tone.json")
+
+def load_tone(user_id: int) -> str:
+    p = tone_path(user_id)
+    if os.path.exists(p):
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                return json.load(f).get("tone", "רגיל")
+        except: pass
+    return "רגיל"
+
+def save_tone(user_id: int, tone: str):
+    with open(tone_path(user_id), 'w', encoding='utf-8') as f:
+        json.dump({"tone": tone}, f, ensure_ascii=True)
+
+def tone_system_prompt(user_id: int) -> str:
+    """מחזיר הוראת סגנון להוספה ל-system prompt."""
+    tone = load_tone(user_id)
+    return TONES.get(tone, {}).get("prompt", "")
+
+
+async def cmd_tone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    current = load_tone(user.id)
+
+    if context.args:
+        tone_name = " ".join(context.args).strip()
+        if tone_name not in TONES:
+            names = ", ".join(f"`{t}`" for t in TONES)
+            await update.message.reply_text(
+                f"❌ סגנון לא מוכר.\n\nסגנונות זמינים: {names}",
+                parse_mode="Markdown"
+            )
+            return
+        save_tone(user.id, tone_name)
+        desc = TONES[tone_name]["desc"]
+        await update.message.reply_text(
+            f"✅ סגנון שונה ל: *{tone_name}*\n_{desc}_",
+            parse_mode="Markdown"
+        )
+        return
+
+    # הצג כפתורים
+    buttons = []
+    for tone_name, info in TONES.items():
+        label = f"{'✅ ' if tone_name == current else ''}{tone_name} — {info['desc']}"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"set_tone:{tone_name}")])
+    await update.message.reply_text(
+        f"🎨 *בחר סגנון תשובה*\nנוכחי: *{current}*",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+async def callback_set_tone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tone_name = query.data.split(":", 1)[1]
+    user = query.from_user
+    if tone_name in TONES:
+        save_tone(user.id, tone_name)
+        desc = TONES[tone_name]["desc"]
+        await query.edit_message_text(
+            f"✅ סגנון שונה ל: *{tone_name}*\n_{desc}_",
+            parse_mode="Markdown"
+        )
+    else:
+        await query.edit_message_text("❌ סגנון לא מוכר.")
+
+
+# ─────────────────────────────────────────────
+#  /stats  — סטטיסטיקות שימוש
+# ─────────────────────────────────────────────
+
+async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    stats = load_stats(user.id)
+    total = stats.get("total_messages", 0)
+
+    if total == 0:
+        await update.message.reply_text("📊 עדיין אין נתוני שימוש.")
+        return
+
+    # מיון מודלים לפי שימוש
+    models = stats.get("models", {})
+    sorted_models = sorted(models.items(), key=lambda x: x[1], reverse=True)
+
+    lines = [
+        "📊 *סטטיסטיקות שימוש*",
+        "━━━━━━━━━━━━━━━━━━━",
+        f"📨 סה\"כ הודעות: *{total}*",
+        f"📅 שימוש ראשון: {stats.get('first_use', '—')}",
+        f"🕐 שימוש אחרון: {stats.get('last_use', '—')}",
+        "",
+        "🤖 *מודלים בשימוש:*",
+    ]
+
+    for model_name, count in sorted_models:
+        pct   = round(count / total * 100)
+        bar   = "█" * (pct // 10) + "░" * (10 - pct // 10)
+        info  = ALL_MODELS.get(model_name, {})
+        emoji = MODEL_PROFILES.get(model_name, {}).get("emoji", "🔹")
+        heb   = info.get("heb", model_name)
+        lines.append(f"{emoji} {heb}: {count} ({pct}%)\n   `{bar}`")
+
+    lines += ["━━━━━━━━━━━━━━━━━━━"]
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+# ─────────────────────────────────────────────
 #  /cancel
 # ─────────────────────────────────────────────
 
@@ -1628,13 +1872,16 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("chat",    cmd_chat))
     app.add_handler(CommandHandler("delchat", cmd_delchat))
     app.add_handler(CommandHandler("status",    cmd_status))
+    app.add_handler(CommandHandler("stats",     cmd_stats))
     app.add_handler(CommandHandler("retry",     cmd_retry))
     app.add_handler(CommandHandler("undo",      cmd_undo))
+    app.add_handler(CommandHandler("redo",      cmd_redo))
     app.add_handler(CommandHandler("summarize", cmd_summarize))
     app.add_handler(CommandHandler("export",    cmd_export))
     app.add_handler(CommandHandler("remember",  cmd_remember))
     app.add_handler(CommandHandler("forget",    cmd_forget))
     app.add_handler(CommandHandler("memories",  cmd_memories))
+    app.add_handler(CommandHandler("tone",      cmd_tone))
     app.add_handler(CommandHandler("help",    cmd_help_list))
     app.add_handler(CommandHandler("list",    cmd_help_list))
     app.add_handler(CallbackQueryHandler(callback_switch_chat,    pattern=r"^switch_chat:"))
@@ -1643,6 +1890,7 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(callback_export_chat,    pattern=r"^export_chat:"))
     app.add_handler(CallbackQueryHandler(callback_forget,         pattern=r"^forget:"))
     app.add_handler(CallbackQueryHandler(callback_confirm_forget,  pattern=r"^confirm_forget:"))
+    app.add_handler(CallbackQueryHandler(callback_set_tone,        pattern=r"^set_tone:"))
     app.add_handler(CallbackQueryHandler(
         lambda u, c: u.callback_query.answer() or u.callback_query.edit_message_text("❌ בוטל."),
         pattern=r"^confirm:no$"
