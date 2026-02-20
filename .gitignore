@@ -211,3 +211,6 @@ __marimo__/
 history/
 
 .vscode/
+
+run_bot.bat
+run_bot.vbs
