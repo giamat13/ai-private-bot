@@ -687,6 +687,7 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/model <שם>` — החלפת מודל",
         "",
         "📋 *כללי*",
+        "`/cancel` — ביטול פעולה נוכחית",
         "`/help` | `/list` — הצגת עזרה זו",
         "",
         "━━━━━━━━━━━━━━━━━━━",
@@ -700,6 +701,22 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #  Main
 # ─────────────────────────────────────────────
 
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+    waiting = context.user_data.pop("waiting_for", None)
+    waiting_labels = {
+        "newchat_name": "יצירת צ'אט חדש",
+        "delchat_name": "מחיקת צ'אט",
+        "chat_name":    "מעבר צ'אט",
+    }
+    if waiting:
+        label = waiting_labels.get(waiting, waiting)
+        await update.message.reply_text(f"❌ הפעולה '{label}' בוטלה.")
+    else:
+        await update.message.reply_text("אין פעולה פעילה לביטול.")
+
+
 if __name__ == "__main__":
     print("🚀 Bot starting — Auto mode active by default")
     app = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -711,5 +728,6 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("list",    cmd_help_list))
     app.add_handler(CallbackQueryHandler(callback_switch_chat, pattern=r"^switch_chat:"))
     app.add_handler(CallbackQueryHandler(callback_del_chat,    pattern=r"^del_chat:"))
+    app.add_handler(CommandHandler("cancel",  cmd_cancel))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
