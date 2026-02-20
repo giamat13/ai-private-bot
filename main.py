@@ -7,13 +7,16 @@ import sys
 import io
 import asyncio
 import mimetypes
+
+# אכיפת UTF-8 על Windows — חייב לפני כל דבר אחר
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONUTF8", "1")
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
-
-# תיקון בעיית קידוד בטרמינל
-if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -45,7 +48,7 @@ def load_settings(user_id: int) -> dict:
 
 def save_settings(user_id: int, data: dict):
     with open(settings_path(user_id), 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(data, f, ensure_ascii=True, indent=2)
 
 def chat_path(user_id: int, chat_name: str) -> str:
     """מסלול קובץ ה-JSON של צ'אט לפי שם."""
@@ -72,7 +75,7 @@ def load_chat(user_id: int, chat_name: str) -> list:
 
 def save_chat(user_id: int, chat_name: str, history: list):
     with open(chat_path(user_id, chat_name), 'w', encoding='utf-8') as f:
-        json.dump(history[-20:], f, ensure_ascii=False, indent=2)
+        json.dump(history[-20:], f, ensure_ascii=True, indent=2)
 
 def delete_chat(user_id: int, chat_name: str) -> bool:
     p = chat_path(user_id, chat_name)
@@ -124,8 +127,8 @@ ALL_MODELS = {
     # ===== Groq Cloud =====
     "llama-3.1-8b-instant":   {"provider": "groq", "api_id": "llama-3.1-8b-instant",                        "heb": "Llama 3.1 8B",       "speed": "מיידי",     "category": "groq"},
     "llama-3.3-70b-versatile":{"provider": "groq", "api_id": "llama-3.3-70b-versatile",                     "heb": "Llama 3.3 70B",      "speed": "מהיר מאוד","category": "groq"},
-    "llama-4-maverick":       {"provider": "groq", "api_id": "meta-llama/llama-4-maverick-17b-12e-preview",  "heb": "Llama 4 Maverick",   "speed": "חדש",      "category": "groq"},
-    "llama-4-scout":          {"provider": "groq", "api_id": "meta-llama/llama-4-scout-17b-16e-instruct",    "heb": "Llama 4 Scout",      "speed": "חכם",      "category": "groq"},
+    "llama-4-maverick":       {"provider": "groq", "api_id": "meta-llama/llama-4-maverick-17b-128e-instruct",  "heb": "Llama 4 Maverick",   "speed": "חדש",      "category": "groq"},
+    "llama-4-scout":          {"provider": "groq", "api_id": "meta-llama/llama-4-scout-17b-16e-instruct",      "heb": "Llama 4 Scout",      "speed": "חכם",      "category": "groq"},
     "kimi-k2":                {"provider": "groq", "api_id": "moonshotai/kimi-k2-instruct",                  "heb": "Kimi K2",            "speed": "איכותי",   "category": "groq"},
     "gpt-oss-120b":           {"provider": "groq", "api_id": "openai/gpt-oss-120b",                         "heb": "GPT OSS 120B",       "speed": "עוצמתי",   "category": "groq"},
     "gpt-oss-20b":            {"provider": "groq", "api_id": "openai/gpt-oss-20b",                          "heb": "GPT OSS 20B",        "speed": "מהיר",     "category": "groq"},
@@ -405,6 +408,40 @@ async def _keep_typing(bot, chat_id: int):
         pass
 
 
+# --- שליחת הודעה ארוכה בחלקים ---
+
+async def send_long_message(update: Update, text: str, parse_mode: str = "Markdown"):
+    """שולח הודעה. אם ארוכה מ-4000 תווים — מפצל לחלקים חכמים."""
+    MAX_LEN = 4000
+
+    if len(text) <= MAX_LEN:
+        try:
+            await update.message.reply_text(text, parse_mode=parse_mode)
+        except Exception:
+            await update.message.reply_text(text)
+        return
+
+    # פיצול לפי שורות
+    chunks = []
+    current = ""
+    for line in text.split("\n"):
+        if len(current) + len(line) + 1 > MAX_LEN:
+            if current:
+                chunks.append(current.strip())
+            current = line
+        else:
+            current = current + "\n" + line if current else line
+    if current.strip():
+        chunks.append(current.strip())
+
+    for i, chunk in enumerate(chunks):
+        header = f"_חלק {i+1}/{len(chunks)}_\n\n" if len(chunks) > 1 else ""
+        try:
+            await update.message.reply_text(header + chunk, parse_mode=parse_mode)
+        except Exception:
+            await update.message.reply_text(header + chunk)
+
+
 # --- ניתוח תשובת AI לאיתור קבצים/תמונות ---
 
 # מודל עתידי יוכל לשלוח:
@@ -566,6 +603,165 @@ async def handle_waiting_input(update: Update, context: ContextTypes.DEFAULT_TYP
         await _do_delchat(update, context, text)
     elif waiting == "chat_name":
         await _do_switch_chat(update, context, text)
+
+
+# ─────────────────────────────────────────────
+#  קבלת תמונות / קבצים מהמשתמש
+# ─────────────────────────────────────────────
+
+# סיומות שמועברות כתמונה (base64) למודל, השאר כתיאור טקסטואלי
+IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"}
+
+async def download_telegram_file(context: ContextTypes.DEFAULT_TYPE, file_id: str) -> bytes:
+    """מוריד קובץ מ-Telegram ומחזיר bytes."""
+    tg_file = await context.bot.get_file(file_id)
+    buf = io.BytesIO()
+    await tg_file.download_to_memory(buf)
+    buf.seek(0)
+    return buf.read()
+
+def bytes_to_base64_uri(data: bytes, mime: str) -> str:
+    import base64
+    return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+
+def build_media_user_message(caption: str, media_type: str, filename: str,
+                              base64_uri: str | None = None) -> list | str:
+    """
+    בונה הודעת משתמש שתיכנס להיסטוריה.
+    אם המודל תומך בתמונות (vision) — מחזיר content list עם image_url.
+    אחרת — מחזיר תיאור טקסטואלי.
+    """
+    text_part = caption.strip() if caption else "תאר/י את הקובץ הזה."
+
+    if base64_uri:
+        # פורמט OpenAI vision
+        return [
+            {"type": "text",      "text": text_part},
+            {"type": "image_url", "image_url": {"url": base64_uri}},
+        ]
+    else:
+        # קובץ שאין לו vision — שלח תיאור טקסטואלי
+        return f"[המשתמש שלח קובץ: {filename}]\n{text_part}"
+
+
+async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler לתמונות, מסמכים, אודיו, וידאו שנשלחים על ידי המשתמש.
+    - תמונות: מומרות ל-base64 ונשלחות למודל כ-vision (אם נתמך).
+    - קבצים אחרים: נשלח תיאור טקסטואלי + שם קובץ.
+    - מודלי Groq הנוכחיים לא תומכים vision — תישלח הודעת הסבר ברורה.
+    """
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    msg = update.message
+    caption = msg.caption or ""
+
+    # --- זהה את סוג המדיה ---
+    file_id   = None
+    filename  = "קובץ"
+    mime_type = "application/octet-stream"
+    is_image  = False
+
+    if msg.photo:
+        # Telegram שולח מספר גדלים — קח את הגדול ביותר
+        file_id  = msg.photo[-1].file_id
+        filename = "image.jpg"
+        mime_type = "image/jpeg"
+        is_image  = True
+
+    elif msg.document:
+        file_id   = msg.document.file_id
+        filename  = msg.document.file_name or "document"
+        mime_type = msg.document.mime_type or "application/octet-stream"
+        is_image  = mime_type in IMAGE_MIME_TYPES
+
+    elif msg.audio:
+        file_id  = msg.audio.file_id
+        filename = msg.audio.file_name or "audio.mp3"
+        mime_type = msg.audio.mime_type or "audio/mpeg"
+
+    elif msg.voice:
+        file_id  = msg.voice.file_id
+        filename = "voice.ogg"
+        mime_type = "audio/ogg"
+
+    elif msg.video:
+        file_id  = msg.video.file_id
+        filename = msg.video.file_name or "video.mp4"
+        mime_type = msg.video.mime_type or "video/mp4"
+
+    elif msg.video_note:
+        file_id  = msg.video_note.file_id
+        filename = "video_note.mp4"
+        mime_type = "video/mp4"
+
+    elif msg.sticker:
+        file_id  = msg.sticker.file_id
+        filename = "sticker.webp"
+        mime_type = "image/webp"
+        is_image  = True
+
+    if not file_id:
+        await msg.reply_text("⚠️ סוג קובץ זה אינו נתמך.")
+        return
+
+    settings    = load_settings(user.id)
+    model_name  = settings.get("model", DEFAULT_MODEL)
+    ensure_default_chat(user.id)
+    active_chat = get_active_chat(user.id)
+    chat_id     = update.effective_chat.id
+
+    typing_task = asyncio.create_task(_keep_typing(context.bot, chat_id))
+
+    try:
+        current_model = model_name
+        if model_name == "auto":
+            # לתמונות — נסה llama-4-maverick (יש לו vision), אחרת fallback לכתיבה
+            current_model = "llama-4-maverick" if is_image else select_model_by_keywords(caption or filename)
+
+        # --- הורד את הקובץ ---
+        file_data = await download_telegram_file(context, file_id)
+
+        # --- בנה הודעה למודל ---
+        base64_uri = None
+        if is_image:
+            base64_uri = bytes_to_base64_uri(file_data, mime_type)
+
+        user_content = build_media_user_message(caption, mime_type, filename, base64_uri)
+
+        # --- שמור בהיסטוריה כטקסט (base64 לא נשמר — גדול מדי) ---
+        history = load_chat(user.id, active_chat)
+        history_entry = caption if caption else f"[שלח {filename}]"
+        history.append({"role": "user", "content": history_entry})
+
+        # --- שלח למודל ---
+        # בנה messages עם ה-content האמיתי (כולל base64 אם יש)
+        messages_for_ai = load_chat(user.id, active_chat)[:-1]  # היסטוריה ללא הכניסה החדשה
+        messages_for_ai.append({"role": "user", "content": user_content})
+
+        ai_response = get_ai_response_universal(current_model, messages_for_ai)
+
+        history.append({"role": "assistant", "content": ai_response})
+        save_chat(user.id, active_chat, history)
+
+        if model_name == "auto":
+            profile = MODEL_PROFILES.get(current_model, {})
+            emoji = profile.get("emoji", "🤖")
+            model_display = ALL_MODELS.get(current_model, {}).get("heb", current_model)
+            ai_response += f"\n\n_{emoji} נענה ע\"י: {model_display}_"
+
+    except Exception as e:
+        ai_response = f"❌ שגיאה בעיבוד הקובץ: {e}"
+
+    finally:
+        typing_task.cancel()
+        try:
+            await typing_task
+        except asyncio.CancelledError:
+            pass
+
+    await send_response_with_media(update, context, ai_response)
 
 
 # --- /model ---
@@ -840,4 +1036,12 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(callback_del_chat,    pattern=r"^del_chat:"))
     app.add_handler(CommandHandler("cancel",  cmd_cancel))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # קבלת מדיה מהמשתמש
+    app.add_handler(MessageHandler(filters.PHOTO,                          handle_media))
+    app.add_handler(MessageHandler(filters.Document.ALL,                   handle_media))
+    app.add_handler(MessageHandler(filters.AUDIO,                          handle_media))
+    app.add_handler(MessageHandler(filters.VOICE,                          handle_media))
+    app.add_handler(MessageHandler(filters.VIDEO,                          handle_media))
+    app.add_handler(MessageHandler(filters.VIDEO_NOTE,                     handle_media))
+    app.add_handler(MessageHandler(filters.Sticker.ALL,                    handle_media))
     app.run_polling()
