@@ -6,6 +6,7 @@ import datetime
 import sys
 import io
 import asyncio
+import mimetypes
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
@@ -404,38 +405,102 @@ async def _keep_typing(bot, chat_id: int):
         pass
 
 
-# --- שליחת הודעה ארוכה בחלקים ---
+# --- ניתוח תשובת AI לאיתור קבצים/תמונות ---
 
-async def send_long_message(update: Update, text: str, parse_mode: str = "Markdown"):
-    """שולח הודעה. אם ארוכה מ-4000 תווים — מפצל לחלקים חכמים."""
-    MAX_LEN = 4000  # מרווח בטיחות מתחת ל-4096
+# מודל עתידי יוכל לשלוח:
+#   [IMAGE: https://...]        — תמונה מ-URL
+#   [FILE: https://... | שם.pdf] — קובץ מ-URL עם שם אופציונלי
+#   [IMAGE_B64: data:image/png;base64,...] — תמונה encoded ישירות
 
-    if len(text) <= MAX_LEN:
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+FILE_TAG_RE  = re.compile(r'\[FILE:\s*(https?://\S+?)(?:\s*\|\s*([^\]]+))?\]', re.IGNORECASE)
+IMAGE_TAG_RE = re.compile(r'\[IMAGE:\s*(https?://\S+?)\]', re.IGNORECASE)
+IMAGE_B64_RE = re.compile(r'\[IMAGE_B64:\s*(data:image/[a-z]+;base64,[A-Za-z0-9+/=]+)\]', re.IGNORECASE)
+
+def parse_ai_response(text: str) -> dict:
+    """
+    מנתח תשובת מודל ומחזיר:
+      {
+        "text": str,          # הטקסט נקי ללא תגיות
+        "images": [url, ...], # רשימת URLs של תמונות
+        "files": [(url, name), ...],  # רשימת קבצים
+        "images_b64": [data_uri, ...] # תמונות כ-base64
+      }
+    """
+    images    = [(m.group(1)) for m in IMAGE_TAG_RE.finditer(text)]
+    files     = [(m.group(1), m.group(2) or os.path.basename(m.group(1))) for m in FILE_TAG_RE.finditer(text)]
+    images_b64 = [(m.group(1)) for m in IMAGE_B64_RE.finditer(text)]
+
+    # זיהוי אוטומטי: URL שמסתיים בסיומת תמונה — גם בלי תגית
+    # (למקרה שמודל ישלח URL ישיר)
+    url_re = re.compile(r'https?://\S+\.(?:jpg|jpeg|png|gif|webp|bmp)(?:\?\S*)?', re.IGNORECASE)
+    for url in url_re.findall(text):
+        if url not in images:
+            images.append(url)
+
+    # הסר תגיות מהטקסט
+    clean = text
+    clean = IMAGE_TAG_RE.sub('', clean)
+    clean = FILE_TAG_RE.sub('', clean)
+    clean = IMAGE_B64_RE.sub('', clean)
+    clean = url_re.sub('', clean)  # הסר URL-ים של תמונות שזוהו אוטומטית
+    clean = clean.strip()
+
+    return {"text": clean, "images": images, "files": files, "images_b64": images_b64}
+
+
+async def send_response_with_media(update: Update, context: ContextTypes.DEFAULT_TYPE, ai_response: str):
+    """
+    שולח תשובת AI כולל תמונות/קבצים אם קיימים.
+    תומך ב:
+      - [IMAGE: url]
+      - [FILE: url | שם]
+      - [IMAGE_B64: data:image/...;base64,...]
+      - URL ישיר לתמונה בטקסט
+    """
+    parsed = parse_ai_response(ai_response)
+    text   = parsed["text"]
+
+    # שלח טקסט (אם יש)
+    if text:
+        await send_long_message(update, text)
+
+    # שלח תמונות מ-URL
+    for url in parsed["images"]:
         try:
-            await update.message.reply_text(text, parse_mode=parse_mode)
-        except Exception:
-            await update.message.reply_text(text)
-        return
+            await update.message.reply_photo(photo=url)
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ לא ניתן לשלוח תמונה מ-URL:\n{url}\n({e})")
 
-    # פיצול לפי שורות
-    chunks = []
-    current = ""
-    for line in text.split("\n"):
-        if len(current) + len(line) + 1 > MAX_LEN:
-            if current:
-                chunks.append(current.strip())
-            current = line
-        else:
-            current = current + "\n" + line if current else line
-    if current.strip():
-        chunks.append(current.strip())
-
-    for i, chunk in enumerate(chunks):
-        header = f"_חלק {i+1}/{len(chunks)}_\n\n" if len(chunks) > 1 else ""
+    # שלח תמונות base64
+    for data_uri in parsed["images_b64"]:
         try:
-            await update.message.reply_text(header + chunk, parse_mode=parse_mode)
-        except Exception:
-            await update.message.reply_text(header + chunk)
+            # data:image/png;base64,XXXX  →  bytes
+            header, b64data = data_uri.split(",", 1)
+            import base64
+            img_bytes = base64.b64decode(b64data)
+            ext = header.split("/")[1].split(";")[0]  # png / jpeg / etc
+            buf = io.BytesIO(img_bytes)
+            buf.name = f"image.{ext}"
+            await update.message.reply_photo(photo=buf)
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ לא ניתן לשלוח תמונה (base64): {e}")
+
+    # שלח קבצים מ-URL
+    for url, name in parsed["files"]:
+        try:
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+            buf = io.BytesIO(resp.content)
+            buf.name = name
+            # בדוק אם זו תמונה — אם כן, שלח כתמונה
+            mime, _ = mimetypes.guess_type(name)
+            if mime and mime.startswith("image/"):
+                await update.message.reply_photo(photo=buf, filename=name)
+            else:
+                await update.message.reply_document(document=buf, filename=name)
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ לא ניתן לשלוח קובץ '{name}':\n{url}\n({e})")
 
 
 # --- טיפול בהודעות ---
@@ -487,7 +552,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except asyncio.CancelledError:
             pass
 
-    await send_long_message(update, ai_response)
+    await send_response_with_media(update, context, ai_response)
 
 
 async def handle_waiting_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
