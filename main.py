@@ -989,6 +989,8 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/model <שם>` — החלפת מודל",
         "",
         "📋 *כללי*",
+        "`/status` — מידע על המצב הנוכחי",
+        "`/retry` — שליחה מחדש של ההודעה האחרונה",
         "`/cancel` — ביטול פעולה נוכחית",
         "`/help` | `/list` — הצגת עזרה זו",
         "",
@@ -997,6 +999,114 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "_💡 AUTO פעיל — הבוט בוחר מודל לכל שאלה_",
     ]
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+# ─────────────────────────────────────────────
+#  /status
+# ─────────────────────────────────────────────
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    ensure_default_chat(user.id)
+    settings    = load_settings(user.id)
+    model_name  = settings.get("model", DEFAULT_MODEL)
+    active_chat = get_active_chat(user.id)
+    chats       = list_chats(user.id)
+    history     = load_chat(user.id, active_chat) if active_chat else []
+
+    user_msgs     = len([m for m in history if m["role"] == "user"])
+    total_chars   = sum(len(m.get("content", "") if isinstance(m.get("content"), str) else "") for m in history)
+
+    # מודל פעיל
+    if model_name == "auto":
+        model_display = "🧠 AUTO (בחירה אוטומטית)"
+    else:
+        info = ALL_MODELS.get(model_name, {})
+        profile = MODEL_PROFILES.get(model_name, {})
+        emoji = profile.get("emoji", "🤖")
+        model_display = f"{emoji} {info.get('heb', model_name)} (`{model_name}`)"
+
+    # Ollama
+    ollama = get_ollama_models()
+    ollama_line = f"✅ פעיל ({len(ollama)} מודלים)" if ollama else "❌ לא פעיל"
+
+    lines = [
+        "📊 *סטטוס נוכחי*",
+        "━━━━━━━━━━━━━━━━━━━",
+        f"👤 משתמש: `{user.username or user.id}`",
+        f"🤖 מודל: {model_display}",
+        "",
+        f"💬 צ'אט פעיל: *{active_chat}*",
+        f"📝 הודעות בצ'אט: {user_msgs}",
+        f"📏 גודל היסטוריה: {total_chars:,} תווים",
+        f"📁 סה\"כ צ'אטים: {len(chats)} ({', '.join(chats)})",
+        "",
+        f"🏠 Ollama: {ollama_line}",
+        "━━━━━━━━━━━━━━━━━━━",
+    ]
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+# ─────────────────────────────────────────────
+#  /retry
+# ─────────────────────────────────────────────
+
+async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    ensure_default_chat(user.id)
+    active_chat = get_active_chat(user.id)
+    history     = load_chat(user.id, active_chat)
+
+    # מצא את ההודעה האחרונה של המשתמש
+    last_user_msg = None
+    # הסר את התשובה האחרונה של הבוט (אם קיימת) כדי לנסות שוב
+    while history and history[-1]["role"] == "assistant":
+        history.pop()
+    if history and history[-1]["role"] == "user":
+        last_user_msg = history[-1]["content"]
+        history.pop()  # הסר גם את ההודעה של המשתמש — נשלח שוב
+
+    if not last_user_msg:
+        await update.message.reply_text("⚠️ אין הודעה קודמת לשליחה מחדש.")
+        return
+
+    save_chat(user.id, active_chat, history)
+
+    settings = load_settings(user.id)
+    model_name = settings.get("model", DEFAULT_MODEL)
+    chat_id = update.effective_chat.id
+
+    await update.message.reply_text(f"🔄 שולח מחדש: _{last_user_msg[:80]}{'...' if len(last_user_msg) > 80 else ''}_", parse_mode="Markdown")
+
+    typing_task = asyncio.create_task(_keep_typing(context.bot, chat_id))
+    try:
+        current_model = model_name
+        if model_name == "auto":
+            current_model = select_model_by_keywords(last_user_msg)
+
+        history.append({"role": "user", "content": last_user_msg})
+        ai_response = get_ai_response_universal(current_model, history)
+        history.append({"role": "assistant", "content": ai_response})
+        save_chat(user.id, active_chat, history)
+
+        if model_name == "auto":
+            profile = MODEL_PROFILES.get(current_model, {})
+            emoji = profile.get("emoji", "🤖")
+            model_display = ALL_MODELS.get(current_model, {}).get("heb", current_model)
+            ai_response += f"\n\n_{emoji} נענה ע\"י: {model_display}_"
+
+    finally:
+        typing_task.cancel()
+        try:
+            await typing_task
+        except asyncio.CancelledError:
+            pass
+
+    await send_response_with_media(update, context, ai_response)
 
 
 # ─────────────────────────────────────────────
@@ -1030,6 +1140,8 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("newchat", cmd_newchat))
     app.add_handler(CommandHandler("chat",    cmd_chat))
     app.add_handler(CommandHandler("delchat", cmd_delchat))
+    app.add_handler(CommandHandler("status",  cmd_status))
+    app.add_handler(CommandHandler("retry",   cmd_retry))
     app.add_handler(CommandHandler("help",    cmd_help_list))
     app.add_handler(CommandHandler("list",    cmd_help_list))
     app.add_handler(CallbackQueryHandler(callback_switch_chat, pattern=r"^switch_chat:"))
