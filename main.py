@@ -650,6 +650,10 @@ async def handle_waiting_input(update: Update, context: ContextTypes.DEFAULT_TYP
         await _do_export(update, context, text)
     elif waiting == "remember_fact":
         await _do_remember(update, context, text)
+    elif waiting == "tone_custom":
+        # טקסט חופשי — הטקסט עצמו הוא ה-prompt
+        name = text[:30] + ("..." if len(text) > 30 else "")
+        await _apply_tone(update, update.effective_user.id, name, text)
 
 
 # ─────────────────────────────────────────────
@@ -1723,27 +1727,43 @@ TONES = {
     "רשמי":    {"desc": "שפה מקצועית ורשמית",            "prompt": "ענה בשפה מקצועית ורשמית. הימנע מביטויים מזדמנים."},
     "הומור":   {"desc": "תשובות עם נגיעת הומור",         "prompt": "הוסף נגיעת הומור קלה לתשובות מבלי לפגוע באיכות."},
 }
-
 def tone_path(user_id: int) -> str:
     return os.path.join(get_user_dir(user_id), "tone.json")
 
-def load_tone(user_id: int) -> str:
+def load_tone(user_id: int) -> dict:
+    """מחזיר {"name": str, "prompt": str} — name לתצוגה, prompt להזרקה."""
     p = tone_path(user_id)
     if os.path.exists(p):
         try:
             with open(p, 'r', encoding='utf-8') as f:
-                return json.load(f).get("tone", "רגיל")
+                data = json.load(f)
+                # תמיכה לאחור בפורמט ישן (שמר רק מחרוזת)
+                if isinstance(data, str):
+                    t = TONES.get(data, {})
+                    return {"name": data, "prompt": t.get("prompt", data)}
+                return data
         except: pass
-    return "רגיל"
+    return {"name": "רגיל", "prompt": ""}
 
-def save_tone(user_id: int, tone: str):
+def save_tone(user_id: int, name: str, prompt: str):
     with open(tone_path(user_id), 'w', encoding='utf-8') as f:
-        json.dump({"tone": tone}, f, ensure_ascii=True)
+        json.dump({"name": name, "prompt": prompt}, f, ensure_ascii=True)
 
 def tone_system_prompt(user_id: int) -> str:
-    """מחזיר הוראת סגנון להוספה ל-system prompt."""
-    tone = load_tone(user_id)
-    return TONES.get(tone, {}).get("prompt", "")
+    return load_tone(user_id).get("prompt", "")
+
+
+async def _apply_tone(update, user_id: int, name: str, prompt: str, edit=False):
+    """שומר ומאשר שינוי סגנון — משותף ל-cmd_tone ו-callback."""
+    save_tone(user_id, name, prompt)
+    text = (
+        f"✅ סגנון שונה ל: *{name}*\n"
+        + (f"_הוראה: {prompt}_" if prompt else "_ברירת מחדל — ללא הוראה מיוחדת_")
+    )
+    if edit:
+        await update.edit_message_text(text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(text, parse_mode="Markdown")
 
 
 async def cmd_tone(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1753,29 +1773,31 @@ async def cmd_tone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current = load_tone(user.id)
 
     if context.args:
-        tone_name = " ".join(context.args).strip()
-        if tone_name not in TONES:
-            names = ", ".join(f"`{t}`" for t in TONES)
-            await update.message.reply_text(
-                f"❌ סגנון לא מוכר.\n\nסגנונות זמינים: {names}",
-                parse_mode="Markdown"
-            )
-            return
-        save_tone(user.id, tone_name)
-        desc = TONES[tone_name]["desc"]
-        await update.message.reply_text(
-            f"✅ סגנון שונה ל: *{tone_name}*\n_{desc}_",
-            parse_mode="Markdown"
-        )
+        # /tone <כל טקסט> — שני מצבים:
+        # 1. שם מהרשימה: /tone קצר  →  שימוש ב-prompt המוגדר
+        # 2. טקסט חופשי: /tone ענה כמו פיראט  →  הטקסט עצמו הוא ה-prompt
+        raw = " ".join(context.args).strip()
+        if raw in TONES:
+            name   = raw
+            prompt = TONES[raw]["prompt"]
+        else:
+            name   = raw[:30] + ("..." if len(raw) > 30 else "")  # שם קצר לתצוגה
+            prompt = raw
+        await _apply_tone(update, user.id, name, prompt)
         return
 
-    # הצג כפתורים
+    # בלי ארגומנט — הצג כפתורים + הנחיה לכתיבה חופשית
     buttons = []
     for tone_name, info in TONES.items():
-        label = f"{'✅ ' if tone_name == current else ''}{tone_name} — {info['desc']}"
+        active = tone_name == current["name"]
+        label  = f"{'✅ ' if active else ''}{tone_name} — {info['desc']}"
         buttons.append([InlineKeyboardButton(label, callback_data=f"set_tone:{tone_name}")])
+
+    context.user_data["waiting_for"] = "tone_custom"
     await update.message.reply_text(
-        f"🎨 *בחר סגנון תשובה*\nנוכחי: *{current}*",
+        f"🎨 *בחר סגנון תשובה*\nנוכחי: *{current['name']}*\n\n"
+        "בחר מהרשימה, *או כתוב סגנון חופשי*, למשל:\n"
+        "`ענה כמו פיראט`\n`השתמש רק בנקודות`\n`תמיד פתח עם בדיחה`",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
@@ -1784,15 +1806,11 @@ async def cmd_tone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def callback_set_tone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    context.user_data.pop("waiting_for", None)
     tone_name = query.data.split(":", 1)[1]
     user = query.from_user
     if tone_name in TONES:
-        save_tone(user.id, tone_name)
-        desc = TONES[tone_name]["desc"]
-        await query.edit_message_text(
-            f"✅ סגנון שונה ל: *{tone_name}*\n_{desc}_",
-            parse_mode="Markdown"
-        )
+        await _apply_tone(query, user.id, tone_name, TONES[tone_name]["prompt"], edit=True)
     else:
         await query.edit_message_text("❌ סגנון לא מוכר.")
 
@@ -1852,6 +1870,7 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "chat_name":       "מעבר צ'אט",
         "export_chat_name":"ייצוא צ'אט",
         "remember_fact":   "שמירת זיכרון",
+        "tone_custom":     "שינוי סגנון",
     }
     if waiting:
         label = waiting_labels.get(waiting, waiting)
