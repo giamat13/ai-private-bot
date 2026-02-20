@@ -482,93 +482,62 @@ async def send_long_message(update: Update, text: str, parse_mode: str = "Markdo
 
 # --- ניתוח תשובת AI לאיתור קבצים/תמונות ---
 
-# מודל עתידי יוכל לשלוח:
-#   [IMAGE: https://...]        — תמונה מ-URL
-#   [FILE: https://... | שם.pdf] — קובץ מ-URL עם שם אופציונלי
-#   [IMAGE_B64: data:image/png;base64,...] — תמונה encoded ישירות
-
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 FILE_TAG_RE  = re.compile(r'\[FILE:\s*(https?://\S+?)(?:\s*\|\s*([^\]]+))?\]', re.IGNORECASE)
 IMAGE_TAG_RE = re.compile(r'\[IMAGE:\s*(https?://\S+?)\]', re.IGNORECASE)
 IMAGE_B64_RE = re.compile(r'\[IMAGE_B64:\s*(data:image/[a-z]+;base64,[A-Za-z0-9+/=]+)\]', re.IGNORECASE)
 
 def parse_ai_response(text: str) -> dict:
-    """
-    מנתח תשובת מודל ומחזיר:
-      {
-        "text": str,          # הטקסט נקי ללא תגיות
-        "images": [url, ...], # רשימת URLs של תמונות
-        "files": [(url, name), ...],  # רשימת קבצים
-        "images_b64": [data_uri, ...] # תמונות כ-base64
-      }
-    """
     images    = [(m.group(1)) for m in IMAGE_TAG_RE.finditer(text)]
     files     = [(m.group(1), m.group(2) or os.path.basename(m.group(1))) for m in FILE_TAG_RE.finditer(text)]
     images_b64 = [(m.group(1)) for m in IMAGE_B64_RE.finditer(text)]
 
-    # זיהוי אוטומטי: URL שמסתיים בסיומת תמונה — גם בלי תגית
-    # (למקרה שמודל ישלח URL ישיר)
     url_re = re.compile(r'https?://\S+\.(?:jpg|jpeg|png|gif|webp|bmp)(?:\?\S*)?', re.IGNORECASE)
     for url in url_re.findall(text):
         if url not in images:
             images.append(url)
 
-    # הסר תגיות מהטקסט
     clean = text
     clean = IMAGE_TAG_RE.sub('', clean)
     clean = FILE_TAG_RE.sub('', clean)
     clean = IMAGE_B64_RE.sub('', clean)
-    clean = url_re.sub('', clean)  # הסר URL-ים של תמונות שזוהו אוטומטית
+    clean = url_re.sub('', clean)
     clean = clean.strip()
 
     return {"text": clean, "images": images, "files": files, "images_b64": images_b64}
 
 
 async def send_response_with_media(update: Update, context: ContextTypes.DEFAULT_TYPE, ai_response: str):
-    """
-    שולח תשובת AI כולל תמונות/קבצים אם קיימים.
-    תומך ב:
-      - [IMAGE: url]
-      - [FILE: url | שם]
-      - [IMAGE_B64: data:image/...;base64,...]
-      - URL ישיר לתמונה בטקסט
-    """
     parsed = parse_ai_response(ai_response)
     text   = parsed["text"]
 
-    # שלח טקסט (אם יש)
     if text:
         await send_long_message(update, text)
 
-    # שלח תמונות מ-URL
     for url in parsed["images"]:
         try:
             await update.message.reply_photo(photo=url)
         except Exception as e:
             await update.message.reply_text(f"⚠️ לא ניתן לשלוח תמונה מ-URL:\n{url}\n({e})")
 
-    # שלח תמונות base64
     for data_uri in parsed["images_b64"]:
         try:
-            # data:image/png;base64,XXXX  →  bytes
             header, b64data = data_uri.split(",", 1)
             import base64
             img_bytes = base64.b64decode(b64data)
-            ext = header.split("/")[1].split(";")[0]  # png / jpeg / etc
+            ext = header.split("/")[1].split(";")[0]
             buf = io.BytesIO(img_bytes)
             buf.name = f"image.{ext}"
             await update.message.reply_photo(photo=buf)
         except Exception as e:
             await update.message.reply_text(f"⚠️ לא ניתן לשלוח תמונה (base64): {e}")
 
-    # שלח קבצים מ-URL
     for url, name in parsed["files"]:
         try:
             resp = requests.get(url, timeout=30)
             resp.raise_for_status()
             buf = io.BytesIO(resp.content)
             buf.name = name
-            # בדוק אם זו תמונה — אם כן, שלח כתמונה
             mime, _ = mimetypes.guess_type(name)
             if mime and mime.startswith("image/"):
                 await update.message.reply_photo(photo=buf, filename=name)
@@ -597,7 +566,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.effective_chat.id
 
-    # הפעל typing indicator מתמשך ברקע
     typing_task = asyncio.create_task(_keep_typing(context.bot, chat_id))
 
     try:
@@ -607,7 +575,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         history = load_chat(user.id, active_chat)
 
-        # שמור snapshot ב-undo stack לפני הוספת ההודעה החדשה
         _push_undo(context, history)
 
         history.append({"role": "user", "content": user_text})
@@ -625,7 +592,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ai_response += f"\n\n_{emoji} נענה ע\"י: {model_display}_"
 
     finally:
-        # עצור typing בכל מקרה — גם בשגיאה
         typing_task.cancel()
         try:
             await typing_task
@@ -651,7 +617,6 @@ async def handle_waiting_input(update: Update, context: ContextTypes.DEFAULT_TYP
     elif waiting == "remember_fact":
         await _do_remember(update, context, text)
     elif waiting == "tone_custom":
-        # טקסט חופשי — הטקסט עצמו הוא ה-prompt
         name = text[:30] + ("..." if len(text) > 30 else "")
         await _apply_tone(update, update.effective_user.id, name, text)
 
@@ -660,11 +625,9 @@ async def handle_waiting_input(update: Update, context: ContextTypes.DEFAULT_TYP
 #  קבלת תמונות / קבצים מהמשתמש
 # ─────────────────────────────────────────────
 
-# סיומות שמועברות כתמונה (base64) למודל, השאר כתיאור טקסטואלי
 IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"}
 
 async def download_telegram_file(context: ContextTypes.DEFAULT_TYPE, file_id: str) -> bytes:
-    """מוריד קובץ מ-Telegram ומחזיר bytes."""
     tg_file = await context.bot.get_file(file_id)
     buf = io.BytesIO()
     await tg_file.download_to_memory(buf)
@@ -677,76 +640,55 @@ def bytes_to_base64_uri(data: bytes, mime: str) -> str:
 
 def build_media_user_message(caption: str, media_type: str, filename: str,
                               base64_uri: str | None = None) -> list | str:
-    """
-    בונה הודעת משתמש שתיכנס להיסטוריה.
-    אם המודל תומך בתמונות (vision) — מחזיר content list עם image_url.
-    אחרת — מחזיר תיאור טקסטואלי.
-    """
     text_part = caption.strip() if caption else "תאר/י את הקובץ הזה."
 
     if base64_uri:
-        # פורמט OpenAI vision
         return [
             {"type": "text",      "text": text_part},
             {"type": "image_url", "image_url": {"url": base64_uri}},
         ]
     else:
-        # קובץ שאין לו vision — שלח תיאור טקסטואלי
         return f"[המשתמש שלח קובץ: {filename}]\n{text_part}"
 
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Handler לתמונות, מסמכים, אודיו, וידאו שנשלחים על ידי המשתמש.
-    - תמונות: מומרות ל-base64 ונשלחות למודל כ-vision (אם נתמך).
-    - קבצים אחרים: נשלח תיאור טקסטואלי + שם קובץ.
-    - מודלי Groq הנוכחיים לא תומכים vision — תישלח הודעת הסבר ברורה.
-    """
     user = update.effective_user
     if not is_authorized(user): return
 
     msg = update.message
     caption = msg.caption or ""
 
-    # --- זהה את סוג המדיה ---
     file_id   = None
     filename  = "קובץ"
     mime_type = "application/octet-stream"
     is_image  = False
 
     if msg.photo:
-        # Telegram שולח מספר גדלים — קח את הגדול ביותר
         file_id  = msg.photo[-1].file_id
         filename = "image.jpg"
         mime_type = "image/jpeg"
         is_image  = True
-
     elif msg.document:
         file_id   = msg.document.file_id
         filename  = msg.document.file_name or "document"
         mime_type = msg.document.mime_type or "application/octet-stream"
         is_image  = mime_type in IMAGE_MIME_TYPES
-
     elif msg.audio:
         file_id  = msg.audio.file_id
         filename = msg.audio.file_name or "audio.mp3"
         mime_type = msg.audio.mime_type or "audio/mpeg"
-
     elif msg.voice:
         file_id  = msg.voice.file_id
         filename = "voice.ogg"
         mime_type = "audio/ogg"
-
     elif msg.video:
         file_id  = msg.video.file_id
         filename = msg.video.file_name or "video.mp4"
         mime_type = msg.video.mime_type or "video/mp4"
-
     elif msg.video_note:
         file_id  = msg.video_note.file_id
         filename = "video_note.mp4"
         mime_type = "video/mp4"
-
     elif msg.sticker:
         file_id  = msg.sticker.file_id
         filename = "sticker.webp"
@@ -768,31 +710,24 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         current_model = model_name
         if model_name == "auto":
-            # לתמונות — נסה llama-4-maverick (יש לו vision), אחרת fallback לכתיבה
             current_model = "llama-4-maverick" if is_image else select_model_by_keywords(caption or filename)
 
-        # --- הורד את הקובץ ---
         file_data = await download_telegram_file(context, file_id)
 
-        # --- בנה הודעה למודל ---
         base64_uri = None
         if is_image:
             base64_uri = bytes_to_base64_uri(file_data, mime_type)
 
         user_content = build_media_user_message(caption, mime_type, filename, base64_uri)
 
-        # --- שמור בהיסטוריה כטקסט (base64 לא נשמר — גדול מדי) ---
         history = load_chat(user.id, active_chat)
 
-        # שמור snapshot ב-undo stack לפני הוספת ההודעה
         _push_undo(context, history)
 
         history_entry = caption if caption else f"[שלח {filename}]"
         history.append({"role": "user", "content": history_entry})
 
-        # --- שלח למודל ---
-        # בנה messages עם ה-content האמיתי (כולל base64 אם יש)
-        messages_for_ai = load_chat(user.id, active_chat)[:-1]  # היסטוריה ללא הכניסה החדשה
+        messages_for_ai = load_chat(user.id, active_chat)[:-1]
         messages_for_ai.append({"role": "user", "content": user_content})
 
         ai_response = get_ai_response_universal(current_model, messages_for_ai, user_id=user.id)
@@ -857,7 +792,7 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += "━━━━━━━━━━━━━━━━━━━\n"
             msg += "\n".join([f"🔹 `{m}`" for m in ollama_list]) + "\n"
 
-        msg += "\n➡️ *שינוי מודל:* `/model <n>`"
+        msg += "\n➡️ *שינוי מודל:* `/model <שם>`"
         await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
@@ -984,7 +919,6 @@ async def cmd_delchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["waiting_for"] = "delchat_name"
 
 def confirm_keyboard(yes_data: str, no_data: str = "confirm:no") -> InlineKeyboardMarkup:
-    """כפתורי אישור כן/לא."""
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ כן, מחק", callback_data=yes_data),
         InlineKeyboardButton("❌ לא",      callback_data=no_data),
@@ -1013,7 +947,6 @@ async def _do_delchat(update: Update, context, name: str):
 
 
 async def callback_del_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """בחירה ראשונה מרשימת הצ'אטים — מציג אישור."""
     query = update.callback_query
     await query.answer()
     name = query.data.split(":", 1)[1]
@@ -1033,7 +966,6 @@ async def callback_del_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def callback_confirm_delchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """אישור סופי — מבצע את המחיקה."""
     query = update.callback_query
     await query.answer()
     name = query.data.split(":", 1)[1]
@@ -1058,44 +990,55 @@ async def callback_confirm_delchat(update: Update, context: ContextTypes.DEFAULT
 async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not is_authorized(user): return
-    active = get_active_chat(user.id) or "ראשי"
-    chats = list_chats(user.id)
-    chats_str = ", ".join(chats) if chats else "אין"
-    lines = [
-        "🤖 *פקודות הבוט*",
-        "━━━━━━━━━━━━━━━━━━━",
-        "",
-        "💬 *ניהול צ'אטים*",
-        "`/newchat [שם]` — יצירת צ'אט חדש",
-        "`/chat [שם]` — מעבר לצ'אט קיים",
-        "`/delchat [שם]` — מחיקת צ'אט",
-        "",
-        "🤖 *מודל AI*",
-        "`/model` — הצגת כל המודלים הזמינים",
-        "`/model <שם>` — החלפת מודל",
-        "`/tone [סגנון]` — שינוי סגנון תשובה (קצר/מפורט/ידידותי/רשמי/הומור)",
-        "",
-        "🧠 *זיכרון*",
-        "`/remember <עובדה>` — שמירת מידע לזיכרון קבוע",
-        "`/forget [מספר/טקסט]` — מחיקת עובדה מהזיכרון",
-        "`/memories` — הצגת כל הזיכרונות",
-        "",
-        "📋 *כללי*",
-        "`/status` — מידע על המצב הנוכחי",
-        "`/stats` — סטטיסטיקות שימוש",
-        "`/retry` — שליחה מחדש של ההודעה האחרונה",
-        "`/undo` — ביטול ההודעה האחרונה (ניתן כמה פעמים)",
-        "`/redo` — שחזור מה שבוטל עם /undo",
-        "`/summarize` — סיכום הצ'אט הפעיל",
-        "`/export [שם צ'אט]` — ייצוא צ'אט כקובץ .txt",
-        "`/cancel` — ביטול פעולה נוכחית",
-        "`/help` | `/list` — הצגת עזרה זו",
-        "",
-        "━━━━━━━━━━━━━━━━━━━",
-        f"_פעיל: *{active}* | צ'אטים: {chats_str}_",
-        "_💡 AUTO פעיל — הבוט בוחר מודל לכל שאלה_",
-    ]
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+    ensure_default_chat(user.id)
+    active     = get_active_chat(user.id) or "ראשי"
+    model_name = load_settings(user.id).get("model", DEFAULT_MODEL)
+    tone_name  = load_tone(user.id).get("name", "רגיל")
+    chats      = list_chats(user.id)
+    memories   = load_memory(user.id)
+
+    model_display = "🧠 AUTO" if model_name == "auto" else f"`{model_name}`"
+
+    msg = (
+        "🤖 *פקודות הבוט*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "\n"
+        "💬 *צ'אטים*\n"
+        "`/newchat [שם]` — צ'אט חדש\n"
+        "`/chat [שם]` — מעבר לצ'אט\n"
+        "`/delchat [שם]` — מחיקת צ'אט\n"
+        "`/export [שם]` — ייצוא כקובץ .txt\n"
+        "\n"
+        "🤖 *מודל ו-AI*\n"
+        "`/model` — רשימת מודלים\n"
+        "`/model <שם>` — החלפת מודל\n"
+        "`/tone [סגנון]` — שינוי סגנון תשובה\n"
+        "\n"
+        "🧠 *זיכרון*\n"
+        "`/remember <עובדה>` — שמירה לזיכרון קבוע\n"
+        "`/forget [מספר/טקסט]` — מחיקה מהזיכרון\n"
+        "`/memories` — הצגת כל הזיכרונות\n"
+        "\n"
+        "📋 *היסטוריה*\n"
+        "`/undo` — ביטול ההודעה האחרונה\n"
+        "`/redo` — שחזור מה שבוטל\n"
+        "`/retry` — שליחה מחדש של ההודעה האחרונה\n"
+        "`/summarize` — סיכום הצ'אט הפעיל\n"
+        "\n"
+        "📊 *מידע*\n"
+        "`/status` — מצב נוכחי\n"
+        "`/stats` — סטטיסטיקות שימוש\n"
+        "`/cancel` — ביטול פעולה פעילה\n"
+        "`/help` | `/list` — עזרה זו\n"
+        "\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"💬 צ'אט פעיל: *{active}*  |  {len(chats)} צ'אטים\n"
+        f"🤖 מודל: {model_display}  |  🎨 סגנון: {tone_name}\n"
+        f"🧠 זיכרונות: {len(memories)}"
+    )
+
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
 # ─────────────────────────────────────────────
@@ -1116,7 +1059,6 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_msgs     = len([m for m in history if m["role"] == "user"])
     total_chars   = sum(len(m.get("content", "") if isinstance(m.get("content"), str) else "") for m in history)
 
-    # מודל פעיל
     if model_name == "auto":
         model_display = "🧠 AUTO (בחירה אוטומטית)"
     else:
@@ -1125,7 +1067,6 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         emoji = profile.get("emoji", "🤖")
         model_display = f"{emoji} {info.get('heb', model_name)} (`{model_name}`)"
 
-    # Ollama
     ollama = get_ollama_models()
     ollama_line = f"✅ פעיל ({len(ollama)} מודלים)" if ollama else "❌ לא פעיל"
 
@@ -1158,14 +1099,12 @@ async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active_chat = get_active_chat(user.id)
     history     = load_chat(user.id, active_chat)
 
-    # מצא את ההודעה האחרונה של המשתמש
     last_user_msg = None
-    # הסר את התשובה האחרונה של הבוט (אם קיימת) כדי לנסות שוב
     while history and history[-1]["role"] == "assistant":
         history.pop()
     if history and history[-1]["role"] == "user":
         last_user_msg = history[-1]["content"]
-        history.pop()  # הסר גם את ההודעה של המשתמש — נשלח שוב
+        history.pop()
 
     if not last_user_msg:
         await update.message.reply_text("⚠️ אין הודעה קודמת לשליחה מחדש.")
@@ -1207,32 +1146,22 @@ async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
-#  /undo  /redo  — ביטול וחזרה על הודעות
+#  /undo  /redo
 # ─────────────────────────────────────────────
-#
-#  context.user_data["undo_stack"] = [snapshot1, snapshot2, ...]
-#  context.user_data["redo_stack"] = [snapshot1, snapshot2, ...]
-#  כל snapshot = עותק של ההיסטוריה לפני הפעולה
-#  הstack מתאפס כשמשתמש שולח הודעה חדשה (redo כבר לא רלוונטי)
 
 def _push_undo(context: ContextTypes.DEFAULT_TYPE, history: list):
-    """שומר snapshot של ההיסטוריה ב-undo stack."""
     stack = context.user_data.setdefault("undo_stack", [])
     stack.append([m.copy() for m in history])
-    # מגביל ל-20 שלבים
     if len(stack) > 20:
         stack.pop(0)
-    # הודעה חדשה — redo כבר לא רלוונטי
     context.user_data["redo_stack"] = []
 
 def _clear_redo(context: ContextTypes.DEFAULT_TYPE):
-    """מאפס את redo stack (קורה כשמשתמש שולח הודעה חדשה)."""
     context.user_data["redo_stack"] = []
     context.user_data.setdefault("undo_stack", [])
 
 
 async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """↩️ ביטול ההודעה האחרונה (ניתן לחזור על כמה פעמים)."""
     user = update.effective_user
     if not is_authorized(user): return
 
@@ -1244,11 +1173,9 @@ async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ ההיסטוריה ריקה — אין מה לבטל.")
         return
 
-    # שמור את המצב הנוכחי ב-redo stack לפני השינוי
     redo_stack = context.user_data.setdefault("redo_stack", [])
     redo_stack.append([m.copy() for m in history])
 
-    # הסר תשובת בוט + הודעת משתמש אחרונות
     removed = []
     if history and history[-1]["role"] == "assistant":
         removed.append(history.pop())
@@ -1256,18 +1183,16 @@ async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         removed.append(history.pop())
 
     if not removed:
-        redo_stack.pop()  # לא השתנה כלום — בטל את ה-redo שהוספנו
+        redo_stack.pop()
         await update.message.reply_text("⚠️ אין הודעה לביטול.")
         return
 
     save_chat(user.id, active_chat, history)
 
-    # עדכן undo stack — הסר את ה-snapshot האחרון אם קיים
     undo_stack = context.user_data.setdefault("undo_stack", [])
     if undo_stack:
         undo_stack.pop()
 
-    # תצוגה מקדימה של מה שבוטל
     user_msg = next((m for m in removed if m["role"] == "user"), None)
     content  = user_msg.get("content", "") if user_msg else ""
     if isinstance(content, list):
@@ -1285,7 +1210,6 @@ async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_redo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """↪️ חזרה על פעולה שבוטלה עם /undo."""
     user = update.effective_user
     if not is_authorized(user): return
 
@@ -1298,17 +1222,14 @@ async def cmd_redo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ אין מה לשחזר. /redo זמין רק אחרי /undo.")
         return
 
-    # שמור מצב נוכחי ב-undo stack
     undo_stack = context.user_data.setdefault("undo_stack", [])
     undo_stack.append([m.copy() for m in history])
     if len(undo_stack) > 20:
         undo_stack.pop(0)
 
-    # שחזר snapshot
     restored = redo_stack.pop()
     save_chat(user.id, active_chat, restored)
 
-    # תצוגה מקדימה של מה שחזר
     user_msgs = [m for m in restored if m["role"] == "user"]
     last_user = user_msgs[-1] if user_msgs else None
     content   = last_user.get("content", "") if last_user else ""
@@ -1342,7 +1263,6 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ אין מספיק הודעות בצ'אט לסיכום.")
         return
 
-    # בנה prompt לסיכום
     convo_text = ""
     for m in history:
         role  = "👤 משתמש" if m["role"] == "user" else "🤖 בוט"
@@ -1362,7 +1282,6 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     typing_task = asyncio.create_task(_keep_typing(context.bot, chat_id))
 
     try:
-        # סיכום תמיד עם מודל מהיר — לא צריך את הכבד ביותר
         settings = load_settings(user.id)
         model_name = settings.get("model", DEFAULT_MODEL)
         current_model = "llama-3.3-70b-versatile" if model_name == "auto" else model_name
@@ -1383,11 +1302,10 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
-#  /export  — ייצוא צ'אט כקובץ .txt
+#  /export
 # ─────────────────────────────────────────────
 
 def build_export_text(user_id: int, chat_name: str) -> str:
-    """בונה טקסט מסודר לייצוא."""
     history = load_chat(user_id, chat_name)
     lines = [
         f"ייצוא צ'אט: {chat_name}",
@@ -1420,7 +1338,6 @@ async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chats  = list_chats(user.id)
     active = get_active_chat(user.id)
 
-    # כפתורים לכל צ'אט
     buttons = []
     for c in chats:
         label = ("🏠 " if c == DEFAULT_CHAT_NAME else "💬 ")
@@ -1438,7 +1355,6 @@ async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _do_export(update: Update, context, chat_name: str):
-    """מבצע את הייצוא בפועל."""
     user = update.effective_user
     chats = list_chats(user.id)
     match = next((c for c in chats if c.lower() == chat_name.lower()), None)
@@ -1520,7 +1436,6 @@ def save_memory(user_id: int, memories: list[str]):
         json.dump(memories, f, ensure_ascii=True, indent=2)
 
 def memory_system_prompt(user_id: int) -> str | None:
-    """מחזיר system prompt עם הזיכרונות אם קיימים — להוספה לכל בקשת AI."""
     memories = load_memory(user_id)
     if not memories:
         return None
@@ -1549,7 +1464,6 @@ async def _do_remember(update: Update, context, fact: str):
 
 
 async def cmd_remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """שמירת עובדה לזיכרון הקבוע: /remember <עובדה>"""
     user = update.effective_user
     if not is_authorized(user): return
 
@@ -1562,23 +1476,9 @@ async def cmd_remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await _do_remember(update, context, " ".join(context.args))
-    memories = load_memory(user.id)
-
-    # בדוק כפילויות פשוטות
-    if fact.lower() in [m.lower() for m in memories]:
-        await update.message.reply_text("ℹ️ עובדה זו כבר שמורה בזיכרון.")
-        return
-
-    memories.append(fact)
-    save_memory(user.id, memories)
-    await update.message.reply_text(
-        f"🧠 נשמר בזיכרון!\n`{fact}`\n\n_סה\"כ {len(memories)} עובדות שמורות_",
-        parse_mode="Markdown"
-    )
 
 
 async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """מחיקת עובדה מהזיכרון: /forget <מספר או חלק מהטקסט>"""
     user = update.effective_user
     if not is_authorized(user): return
 
@@ -1588,7 +1488,6 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not context.args:
-        # הצג רשימה עם כפתורים למחיקה
         buttons = []
         for i, m in enumerate(memories, 1):
             label = f"🗑 {i}. {m[:40]}{'...' if len(m) > 40 else ''}"
@@ -1603,7 +1502,6 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query_text = " ".join(context.args).strip()
 
-    # ניסיון מחיקה לפי מספר
     if query_text.isdigit():
         idx = int(query_text) - 1
         if 0 <= idx < len(memories):
@@ -1618,7 +1516,6 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ מספר {query_text} לא קיים. יש {len(memories)} עובדות.")
             return
 
-    # ניסיון מחיקה לפי טקסט חלקי
     matches = [(i, m) for i, m in enumerate(memories) if query_text.lower() in m.lower()]
     if not matches:
         await update.message.reply_text(f"❌ לא נמצאה עובדה המכילה: '{query_text}'")
@@ -1632,7 +1529,6 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     else:
-        # כמה תוצאות — הצג כפתורים
         buttons = [[InlineKeyboardButton(f"🗑 {m[:50]}", callback_data=f"forget:{i}")] for i, m in matches]
         await update.message.reply_text(
             f"נמצאו {len(matches)} תוצאות — בחר מה למחוק:",
@@ -1641,7 +1537,6 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def callback_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """בחירת עובדה למחיקה — מציג אישור."""
     query = update.callback_query
     await query.answer()
     user = query.from_user
@@ -1670,7 +1565,6 @@ async def callback_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def callback_confirm_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """אישור סופי — מבצע את מחיקת הזיכרון."""
     query = update.callback_query
     await query.answer()
     user = query.from_user
@@ -1696,7 +1590,6 @@ async def callback_confirm_forget(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def cmd_memories(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/memories — הצגת כל הזיכרונות השמורים"""
     user = update.effective_user
     if not is_authorized(user): return
 
@@ -1716,7 +1609,7 @@ async def cmd_memories(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
-#  /tone  — שינוי סגנון תשובה
+#  /tone
 # ─────────────────────────────────────────────
 
 TONES = {
@@ -1727,17 +1620,16 @@ TONES = {
     "רשמי":    {"desc": "שפה מקצועית ורשמית",            "prompt": "ענה בשפה מקצועית ורשמית. הימנע מביטויים מזדמנים."},
     "הומור":   {"desc": "תשובות עם נגיעת הומור",         "prompt": "הוסף נגיעת הומור קלה לתשובות מבלי לפגוע באיכות."},
 }
+
 def tone_path(user_id: int) -> str:
     return os.path.join(get_user_dir(user_id), "tone.json")
 
 def load_tone(user_id: int) -> dict:
-    """מחזיר {"name": str, "prompt": str} — name לתצוגה, prompt להזרקה."""
     p = tone_path(user_id)
     if os.path.exists(p):
         try:
             with open(p, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # תמיכה לאחור בפורמט ישן (שמר רק מחרוזת)
                 if isinstance(data, str):
                     t = TONES.get(data, {})
                     return {"name": data, "prompt": t.get("prompt", data)}
@@ -1754,7 +1646,6 @@ def tone_system_prompt(user_id: int) -> str:
 
 
 async def _apply_tone(update, user_id: int, name: str, prompt: str, edit=False):
-    """שומר ומאשר שינוי סגנון — משותף ל-cmd_tone ו-callback."""
     save_tone(user_id, name, prompt)
     text = (
         f"✅ סגנון שונה ל: *{name}*\n"
@@ -1773,20 +1664,16 @@ async def cmd_tone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current = load_tone(user.id)
 
     if context.args:
-        # /tone <כל טקסט> — שני מצבים:
-        # 1. שם מהרשימה: /tone קצר  →  שימוש ב-prompt המוגדר
-        # 2. טקסט חופשי: /tone ענה כמו פיראט  →  הטקסט עצמו הוא ה-prompt
         raw = " ".join(context.args).strip()
         if raw in TONES:
             name   = raw
             prompt = TONES[raw]["prompt"]
         else:
-            name   = raw[:30] + ("..." if len(raw) > 30 else "")  # שם קצר לתצוגה
+            name   = raw[:30] + ("..." if len(raw) > 30 else "")
             prompt = raw
         await _apply_tone(update, user.id, name, prompt)
         return
 
-    # בלי ארגומנט — הצג כפתורים + הנחיה לכתיבה חופשית
     buttons = []
     for tone_name, info in TONES.items():
         active = tone_name == current["name"]
@@ -1816,7 +1703,7 @@ async def callback_set_tone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
-#  /stats  — סטטיסטיקות שימוש
+#  /stats
 # ─────────────────────────────────────────────
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1830,7 +1717,6 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📊 עדיין אין נתוני שימוש.")
         return
 
-    # מיון מודלים לפי שימוש
     models = stats.get("models", {})
     sorted_models = sorted(models.items(), key=lambda x: x[1], reverse=True)
 
@@ -1886,10 +1772,10 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == "__main__":
     print("🚀 Bot starting — Auto mode active by default")
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("model",   change_model))
-    app.add_handler(CommandHandler("newchat", cmd_newchat))
-    app.add_handler(CommandHandler("chat",    cmd_chat))
-    app.add_handler(CommandHandler("delchat", cmd_delchat))
+    app.add_handler(CommandHandler("model",     change_model))
+    app.add_handler(CommandHandler("newchat",   cmd_newchat))
+    app.add_handler(CommandHandler("chat",      cmd_chat))
+    app.add_handler(CommandHandler("delchat",   cmd_delchat))
     app.add_handler(CommandHandler("status",    cmd_status))
     app.add_handler(CommandHandler("stats",     cmd_stats))
     app.add_handler(CommandHandler("retry",     cmd_retry))
@@ -1901,13 +1787,13 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("forget",    cmd_forget))
     app.add_handler(CommandHandler("memories",  cmd_memories))
     app.add_handler(CommandHandler("tone",      cmd_tone))
-    app.add_handler(CommandHandler("help",    cmd_help_list))
-    app.add_handler(CommandHandler("list",    cmd_help_list))
-    app.add_handler(CallbackQueryHandler(callback_switch_chat,    pattern=r"^switch_chat:"))
-    app.add_handler(CallbackQueryHandler(callback_del_chat,       pattern=r"^del_chat:"))
-    app.add_handler(CallbackQueryHandler(callback_confirm_delchat,pattern=r"^confirm_delchat:"))
-    app.add_handler(CallbackQueryHandler(callback_export_chat,    pattern=r"^export_chat:"))
-    app.add_handler(CallbackQueryHandler(callback_forget,         pattern=r"^forget:"))
+    app.add_handler(CommandHandler("help",      cmd_help_list))
+    app.add_handler(CommandHandler("list",      cmd_help_list))
+    app.add_handler(CallbackQueryHandler(callback_switch_chat,     pattern=r"^switch_chat:"))
+    app.add_handler(CallbackQueryHandler(callback_del_chat,        pattern=r"^del_chat:"))
+    app.add_handler(CallbackQueryHandler(callback_confirm_delchat, pattern=r"^confirm_delchat:"))
+    app.add_handler(CallbackQueryHandler(callback_export_chat,     pattern=r"^export_chat:"))
+    app.add_handler(CallbackQueryHandler(callback_forget,          pattern=r"^forget:"))
     app.add_handler(CallbackQueryHandler(callback_confirm_forget,  pattern=r"^confirm_forget:"))
     app.add_handler(CallbackQueryHandler(callback_set_tone,        pattern=r"^set_tone:"))
     app.add_handler(CallbackQueryHandler(
@@ -1916,12 +1802,11 @@ if __name__ == "__main__":
     ))
     app.add_handler(CommandHandler("cancel",  cmd_cancel))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    # קבלת מדיה מהמשתמש
-    app.add_handler(MessageHandler(filters.PHOTO,                          handle_media))
-    app.add_handler(MessageHandler(filters.Document.ALL,                   handle_media))
-    app.add_handler(MessageHandler(filters.AUDIO,                          handle_media))
-    app.add_handler(MessageHandler(filters.VOICE,                          handle_media))
-    app.add_handler(MessageHandler(filters.VIDEO,                          handle_media))
-    app.add_handler(MessageHandler(filters.VIDEO_NOTE,                     handle_media))
-    app.add_handler(MessageHandler(filters.Sticker.ALL,                    handle_media))
+    app.add_handler(MessageHandler(filters.PHOTO,        handle_media))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_media))
+    app.add_handler(MessageHandler(filters.AUDIO,        handle_media))
+    app.add_handler(MessageHandler(filters.VOICE,        handle_media))
+    app.add_handler(MessageHandler(filters.VIDEO,        handle_media))
+    app.add_handler(MessageHandler(filters.VIDEO_NOTE,   handle_media))
+    app.add_handler(MessageHandler(filters.Sticker.ALL,  handle_media))
     app.run_polling()
