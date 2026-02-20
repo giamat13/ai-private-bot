@@ -169,6 +169,23 @@ ALL_MODELS = {
     "cerebras-gpt-oss-120b":  {"provider": "cerebras", "api_id": "gpt-oss-120b",                           "heb": "GPT OSS 120B (Cerebras)",    "speed": "מהיר ~3000 t/s",   "category": "cerebras"},
     "cerebras-qwen3-235b":    {"provider": "cerebras", "api_id": "qwen-3-235b-a22b-instruct-2507",         "heb": "Qwen3 235B (Cerebras)",      "speed": "חזק ~1400 t/s",    "category": "cerebras"},
     "cerebras-zai-glm-4.7":   {"provider": "cerebras", "api_id": "zai-glm-4.7",                            "heb": "GLM 4.7 (Cerebras)",         "speed": "איכותי ~1000 t/s", "category": "cerebras"},
+
+    # ===== Mistral =====
+    # --- Generalist ---
+    "mistral-large":          {"provider": "mistral", "api_id": "mistral-large-latest",              "heb": "Mistral Large 3",        "speed": "עוצמתי",     "category": "mistral"},
+    "mistral-medium":         {"provider": "mistral", "api_id": "mistral-medium-latest",             "heb": "Mistral Medium 3.1",     "speed": "מהיר",       "category": "mistral"},
+    "mistral-small":          {"provider": "mistral", "api_id": "mistral-small-latest",              "heb": "Mistral Small 3.2",      "speed": "מהיר מאוד",  "category": "mistral"},
+    "ministral-14b":          {"provider": "mistral", "api_id": "ministral-14b-latest",              "heb": "Ministral 3 14B",        "speed": "מהיר",       "category": "mistral"},
+    "ministral-8b":           {"provider": "mistral", "api_id": "ministral-8b-latest",               "heb": "Ministral 3 8B",         "speed": "מהיר מאוד",  "category": "mistral"},
+    "ministral-3b":           {"provider": "mistral", "api_id": "ministral-3b-latest",               "heb": "Ministral 3 3B",         "speed": "מיידי",      "category": "mistral"},
+    # --- Reasoning ---
+    "magistral-medium":       {"provider": "mistral", "api_id": "magistral-medium-latest",           "heb": "Magistral Medium 1.2",   "speed": "מעמיק",      "category": "mistral"},
+    "magistral-small":        {"provider": "mistral", "api_id": "magistral-small-latest",            "heb": "Magistral Small 1.2",    "speed": "מהיר+חשיבה", "category": "mistral"},
+    # --- Code ---
+    "codestral":              {"provider": "mistral", "api_id": "codestral-latest",                  "heb": "Codestral",              "speed": "מהיר",       "category": "mistral"},
+    "devstral":               {"provider": "mistral", "api_id": "devstral-latest",                   "heb": "Devstral 2",             "speed": "סוכן קוד",   "category": "mistral"},
+    # --- Nemo (multilingual) ---
+    "mistral-nemo":           {"provider": "mistral", "api_id": "open-mistral-nemo",                 "heb": "Mistral Nemo 12B",       "speed": "מהיר",       "category": "mistral"},
 }
 
 # ===== פרופיל מודלים לבחירה אוטומטית =====
@@ -244,11 +261,68 @@ MODEL_PROFILES = {
         "emoji": "🤖",
         "description": "355B פרמטרים, המודל הכי חכם ב-Cerebras לפי Artificial Analysis. מצטיין ב-agentic tasks."
     },
+    # ===== Mistral =====
+    "mistral-large": {
+        "best_for": "כתיבה מורכבת, ניתוח עמוק, ריבוי לשונות, ידע כללי, שאלות משפטיות ועסקיות",
+        "emoji": "🌊",
+        "description": "המודל הגדול של Mistral (open-weight). 128K context, מצוין בעברית ובשפות אירופאיות."
+    },
+    "mistral-medium": {
+        "best_for": "מולטימודאלי, תמונות + טקסט, ניתוח מסמכים, RAG, שאלות כלליות",
+        "emoji": "🖼️",
+        "description": "Mistral Medium 3.1 — frontier עם vision. 128K context, מאזן מצוין בין מהירות לאיכות."
+    },
+    "mistral-small": {
+        "best_for": "שיחות יומיומיות, כתיבה מהירה, עיבוד טקסט, batch, עלות-תועלת גבוהה",
+        "emoji": "⚡",
+        "description": "Mistral Small 3.2 — עדכון יוני 2025. open-weight, מהיר ומשתלם מאוד."
+    },
+    "ministral-14b": {
+        "best_for": "מסמכים, vision, הסברים, תרגום, שאלות בינוניות–מורכבות",
+        "emoji": "📋",
+        "description": "Ministral 3 14B — open, vision, 128K context. הכי חכם בסדרת Ministral."
+    },
+    "ministral-8b": {
+        "best_for": "שאלות מהירות, עיבוד טקסט, תגובות יומיומיות במחיר נמוך",
+        "emoji": "🚀",
+        "description": "Ministral 3 8B — open, vision, 128K context. מהיר ויעיל לשימוש יומיומי."
+    },
+    "ministral-3b": {
+        "best_for": "edge deployment, מכשירים מוגבלים, batch גדול, latency מינימלי",
+        "emoji": "💨",
+        "description": "Ministral 3 3B — הכי קטן וקל של Mistral. tiny & efficient, open-weight."
+    },
+    "magistral-medium": {
+        "best_for": "מתמטיקה, לוגיקה, הנמקה מורכבת, הוכחות, STEM מתקדם, בעיות רב-שלביות",
+        "emoji": "🧮",
+        "description": "מודל reasoning חזק עם thinking מפורש. עולה על o3-mini בבעיות לוגיקה ומתמטיקה."
+    },
+    "magistral-small": {
+        "best_for": "reasoning בינוני, מתמטיקה שוטפת, בעיות לוגיקה, מהיר יותר מ-Medium",
+        "emoji": "🔮",
+        "description": "Magistral Small 1.2 — open-weight reasoning model. שקיפות בשרשרת המחשבה."
+    },
+    "codestral": {
+        "best_for": "השלמת קוד (FIM), code completion ב-IDE, קוד מהיר ומדויק, developer tools",
+        "emoji": "💻",
+        "description": "Codestral — מותאם במיוחד ל-fill-in-the-middle. הכי מהיר ומדויק לקוד בין מודלי Mistral."
+    },
+    "devstral": {
+        "best_for": "סוכן קוד אוטונומי, SWE-agent, ניווט codebase, עריכת קבצים מרובים, GitHub tasks",
+        "emoji": "🛠️",
+        "description": "Devstral 2 — frontier code agent. open-weight, מוביל open-source ב-SWE-bench."
+    },
+    "mistral-nemo": {
+        "best_for": "ריבוי לשונות, עברית, ערבית, שפות אירופאיות, תרגום, chatbot רב-לשוני",
+        "emoji": "🌍",
+        "description": "Mistral Nemo 12B — best multilingual open source. 128K context, Apache 2.0."
+    },
 }
 
 # מודלים כבדים שדורשים timeout ארוך
 HEAVY_MODELS = {"kimi-k2", "gpt-oss-120b", "llama-4-maverick", "groq-compound", "llama-4-scout", "qwen3-32b",
-                "cerebras-gpt-oss-120b", "cerebras-qwen3-235b", "cerebras-zai-glm-4.7"}
+                "cerebras-gpt-oss-120b", "cerebras-qwen3-235b", "cerebras-zai-glm-4.7",
+                "mistral-large", "magistral-medium", "magistral-small", "devstral"}
 
 PRIORITY_ORDER = [
     "groq-compound",
@@ -266,6 +340,14 @@ PRIORITY_ORDER = [
     "cerebras-gpt-oss-120b",
     "cerebras-zai-glm-4.7",
     "cerebras-llama3.1-8b",
+    # Mistral — גיבוי איכותי
+    "mistral-large",
+    "mistral-medium",
+    "magistral-medium",
+    "codestral",
+    "devstral",
+    "mistral-small",
+    "mistral-nemo",
 ]
 
 DEFAULT_MODEL = "auto"
@@ -431,6 +513,8 @@ def get_ai_response_universal(model_name, messages, user_id: int = None):
         try:
             if provider == "cerebras":
                 url = "https://api.cerebras.ai/v1/chat/completions"
+            elif provider == "mistral":
+                url = "https://api.mistral.ai/v1/chat/completions"
             else:
                 url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
@@ -835,6 +919,19 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "━━━━━━━━━━━━━━━━━━━\n"
         cerebras_models = {k: v for k, v in ALL_MODELS.items() if v.get("category") == "cerebras"}
         for m, info in cerebras_models.items():
+            profile = MODEL_PROFILES.get(m, {})
+            best_for = profile.get("best_for", "")
+            emoji = profile.get("emoji", "🔹")
+            msg += f"{emoji} `{m}`\n   └ {info['heb']} ({info['speed']})"
+            if best_for:
+                msg += f"\n   📌 _{best_for}_"
+            msg += "\n"
+
+        msg += "\n━━━━━━━━━━━━━━━━━━━\n"
+        msg += "🌊 *מודלי Mistral — אירופאי, רב-לשוני, open-weight*\n"
+        msg += "━━━━━━━━━━━━━━━━━━━\n"
+        mistral_models = {k: v for k, v in ALL_MODELS.items() if v.get("category") == "mistral"}
+        for m, info in mistral_models.items():
             profile = MODEL_PROFILES.get(m, {})
             best_for = profile.get("best_for", "")
             emoji = profile.get("emoji", "🔹")
