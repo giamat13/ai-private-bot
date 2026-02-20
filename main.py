@@ -603,6 +603,8 @@ async def handle_waiting_input(update: Update, context: ContextTypes.DEFAULT_TYP
         await _do_delchat(update, context, text)
     elif waiting == "chat_name":
         await _do_switch_chat(update, context, text)
+    elif waiting == "export_chat_name":
+        await _do_export(update, context, text)
 
 
 # ─────────────────────────────────────────────
@@ -992,6 +994,7 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/status` — מידע על המצב הנוכחי",
         "`/retry` — שליחה מחדש של ההודעה האחרונה",
         "`/summarize` — סיכום הצ'אט הפעיל",
+        "`/export [שם]` — ייצוא צ'אט כקובץ .txt",
         "`/cancel` — ביטול פעולה נוכחית",
         "`/help` | `/list` — הצגת עזרה זו",
         "",
@@ -1168,6 +1171,123 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
+#  /export  — ייצוא צ'אט כקובץ .txt
+# ─────────────────────────────────────────────
+
+def build_export_text(user_id: int, chat_name: str) -> str:
+    """בונה טקסט מסודר לייצוא."""
+    history = load_chat(user_id, chat_name)
+    lines = [
+        f"ייצוא צ'אט: {chat_name}",
+        f"תאריך: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}",
+        f"הודעות: {len([m for m in history if m['role'] == 'user'])}",
+        "=" * 40,
+        "",
+    ]
+    for m in history:
+        role = "👤 אתה" if m["role"] == "user" else "🤖 בוט"
+        content = m.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+        lines.append(f"{role}:\n{content}\n")
+        lines.append("-" * 30)
+        lines.append("")
+    return "\n".join(lines)
+
+
+async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    ensure_default_chat(user.id)
+
+    if context.args:
+        await _do_export(update, context, " ".join(context.args))
+        return
+
+    chats  = list_chats(user.id)
+    active = get_active_chat(user.id)
+
+    # כפתורים לכל צ'אט
+    buttons = []
+    for c in chats:
+        label = ("🏠 " if c == DEFAULT_CHAT_NAME else "💬 ")
+        label += f"► {c}" if c == active else c
+        buttons.append([InlineKeyboardButton(label, callback_data=f"export_chat:{c}")])
+    keyboard = InlineKeyboardMarkup(buttons) if buttons else None
+
+    active_line = f"\nפעיל כרגע: *{active}*" if active else ""
+    await update.message.reply_text(
+        f"📤 *ייצוא צ'אט*{active_line}\n\nבחר צ'אט לייצוא, או כתוב את שמו:",
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+    context.user_data["waiting_for"] = "export_chat_name"
+
+
+async def _do_export(update: Update, context, chat_name: str):
+    """מבצע את הייצוא בפועל."""
+    user = update.effective_user
+    chats = list_chats(user.id)
+    match = next((c for c in chats if c.lower() == chat_name.lower()), None)
+    if not match:
+        await update.message.reply_text(f"❌ צ'אט '{chat_name}' לא נמצא.")
+        return
+
+    history = load_chat(user.id, match)
+    if not history:
+        await update.message.reply_text(f"⚠️ הצ'אט '{match}' ריק — אין מה לייצא.")
+        return
+
+    export_text = build_export_text(user.id, match)
+    buf = io.BytesIO(export_text.encode("utf-8"))
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in match).strip()
+    filename = f"chat_{safe_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.txt"
+    buf.name = filename
+
+    await update.message.reply_document(
+        document=buf,
+        filename=filename,
+        caption=f"📤 ייצוא צ'אט *{match}* — {len([m for m in history if m['role'] == 'user'])} הודעות",
+        parse_mode="Markdown"
+    )
+
+
+async def callback_export_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_name = query.data.split(":", 1)[1]
+    context.user_data.pop("waiting_for", None)
+
+    user = query.from_user
+    chats = list_chats(user.id)
+    match = next((c for c in chats if c == chat_name), None)
+    if not match:
+        await query.edit_message_text(f"❌ צ'אט '{chat_name}' לא נמצא.")
+        return
+
+    history = load_chat(user.id, match)
+    if not history:
+        await query.edit_message_text(f"⚠️ הצ'אט '{match}' ריק — אין מה לייצא.")
+        return
+
+    export_text = build_export_text(user.id, match)
+    buf = io.BytesIO(export_text.encode("utf-8"))
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in match).strip()
+    filename = f"chat_{safe_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.txt"
+    buf.name = filename
+
+    await query.edit_message_text(f"📤 מייצא את '{match}'...")
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=buf,
+        filename=filename,
+        caption=f"📤 ייצוא צ'אט *{match}* — {len([m for m in history if m['role'] == 'user'])} הודעות",
+        parse_mode="Markdown"
+    )
+
+
+# ─────────────────────────────────────────────
 #  /cancel
 # ─────────────────────────────────────────────
 
@@ -1176,9 +1296,10 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(user): return
     waiting = context.user_data.pop("waiting_for", None)
     waiting_labels = {
-        "newchat_name": "יצירת צ'אט חדש",
-        "delchat_name": "מחיקת צ'אט",
-        "chat_name":    "מעבר צ'אט",
+        "newchat_name":    "יצירת צ'אט חדש",
+        "delchat_name":    "מחיקת צ'אט",
+        "chat_name":       "מעבר צ'אט",
+        "export_chat_name":"ייצוא צ'אט",
     }
     if waiting:
         label = waiting_labels.get(waiting, waiting)
@@ -1201,10 +1322,12 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("status",    cmd_status))
     app.add_handler(CommandHandler("retry",     cmd_retry))
     app.add_handler(CommandHandler("summarize", cmd_summarize))
+    app.add_handler(CommandHandler("export",    cmd_export))
     app.add_handler(CommandHandler("help",    cmd_help_list))
     app.add_handler(CommandHandler("list",    cmd_help_list))
     app.add_handler(CallbackQueryHandler(callback_switch_chat, pattern=r"^switch_chat:"))
     app.add_handler(CallbackQueryHandler(callback_del_chat,    pattern=r"^del_chat:"))
+    app.add_handler(CallbackQueryHandler(callback_export_chat, pattern=r"^export_chat:"))
     app.add_handler(CommandHandler("cancel",  cmd_cancel))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     # קבלת מדיה מהמשתמש
