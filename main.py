@@ -5,6 +5,7 @@ import requests
 import datetime
 import sys
 import io
+import asyncio
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
@@ -132,9 +133,8 @@ ALL_MODELS = {
     "groq-compound-mini":     {"provider": "groq", "api_id": "groq/compound-mini",                          "heb": "Groq Compound Mini", "speed": "מיידי",    "category": "groq"},
 }
 
-# ===== פרופיל מודלים לבחירה אוטומטית (מבוסס benchmarks אמיתיים) =====
+# ===== פרופיל מודלים לבחירה אוטומטית =====
 MODEL_PROFILES = {
-    # --- מודלים בניתוב AUTO ---
     "llama-3.1-8b-instant": {
         "best_for": "שיחות יומיומיות, שאלות פשוטות, סיכומים קצרים",
         "emoji": "⚡",
@@ -153,12 +153,12 @@ MODEL_PROFILES = {
     "llama-4-maverick": {
         "best_for": "רב-לשוניות, הנמקה מתקדמת, שאלות בשפות זרות, ידע כללי רחב",
         "emoji": "🌍",
-        "description": "MMLU Pro 80.5%, GPQA 69.8%. עולה על GPT-4o ו-Gemini 2.0 Flash. 400B פרמטרים."
+        "description": "MMLU Pro 80.5%, GPQA 69.8%. עולה על GPT-4o ו-Gemini 2.0 Flash."
     },
     "kimi-k2": {
         "best_for": "קוד, תכנות, debugging, הנדסת תוכנה, אוטומציה",
         "emoji": "💻",
-        "description": "מוביל open-source בקוד (SWE-bench 65.8%). 1T פרמטרים, מצוין ב-tool use."
+        "description": "מוביל open-source בקוד (SWE-bench 65.8%). 1T פרמטרים."
     },
     "qwen3-32b": {
         "best_for": "מתמטיקה, STEM, לוגיקה, חישובים, פיזיקה, כימיה",
@@ -166,7 +166,7 @@ MODEL_PROFILES = {
         "description": "מוביל ב-MATH benchmark (83+). חזק ב-STEM ו-reasoning מתמטי."
     },
     "gpt-oss-20b": {
-        "best_for": "שאלות בינוניות שדורשות יותר מ-8B אבל לא צריך 120B, תגובות מהירות ומדויקות",
+        "best_for": "שאלות בינוניות, תגובות מהירות ומדויקות",
         "emoji": "🎯",
         "description": "גרסה קלה ומהירה של GPT-OSS. איזון מצוין בין מהירות לאיכות."
     },
@@ -176,33 +176,33 @@ MODEL_PROFILES = {
         "description": "המודל הגדול ביותר (120B). לניתוחים שדורשים עומק מרובה שלבים."
     },
     "groq-compound-mini": {
-        "best_for": "שאלות על אירועים עדכניים, מחירים, חדשות, מזג אוויר — חיפוש אינטרנט מהיר",
+        "best_for": "שאלות על אירועים עדכניים, מחירים, חדשות, מזג אוויר",
         "emoji": "🔍",
-        "description": "מחפש באינטרנט בעצמו (web search מובנה). מהיר, שאלה אחת. עולה על GPT-4o-search."
+        "description": "מחפש באינטרנט בעצמו. מהיר, שאלה אחת. עולה על GPT-4o-search."
     },
     "groq-compound": {
         "best_for": "מחקר מרובה מקורות, ניתוח עם ריצת קוד, שאלות שדורשות כמה חיפושים",
         "emoji": "🔬",
-        "description": "עד 10 חיפושי אינטרנט + ריצת קוד בענן. עולה על Perplexity Sonar ו-GPT-4o-search."
+        "description": "עד 10 חיפושי אינטרנט + ריצת קוד בענן."
     },
 }
 
-# סדר עדיפויות בניתוב AUTO (מהספציפי לכללי)
-# compound-mini/compound מחליפים את Tavily — הם עושים חיפוש אינטרנט בעצמם
+# מודלים כבדים שדורשים timeout ארוך
+HEAVY_MODELS = {"kimi-k2", "gpt-oss-120b", "llama-4-maverick", "groq-compound", "llama-4-scout", "qwen3-32b"}
+
 PRIORITY_ORDER = [
-    "groq-compound",       # מחקר רב-שלבי עם אינטרנט + קוד
-    "groq-compound-mini",  # שאלה אחת עם אינטרנט
-    "kimi-k2",             # קוד
-    "qwen3-32b",           # מתמטיקה
-    "llama-4-maverick",    # רב-לשוניות / ידע כללי רחב
-    "llama-4-scout",       # מסמכים ארוכים
-    "gpt-oss-120b",        # מחקר עמוק
-    "gpt-oss-20b",         # בינוני
-    "llama-3.3-70b-versatile",  # כתיבה/עברית
-    "llama-3.1-8b-instant",     # ברירת מחדל קלה
+    "groq-compound",
+    "groq-compound-mini",
+    "kimi-k2",
+    "qwen3-32b",
+    "llama-4-maverick",
+    "llama-4-scout",
+    "gpt-oss-120b",
+    "gpt-oss-20b",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
 ]
 
-# ברירת מחדל = auto
 DEFAULT_MODEL = "auto"
 
 if not os.path.exists(HISTORY_DIR):
@@ -241,25 +241,8 @@ def search_tavily(query):
     return "לא נמצא מידע עדכני."
 
 def select_model_by_keywords(text: str) -> str:
-    """
-    שלב 1 — keywords חזקים וחד-משמעיים → נתב מיד ללא AI call.
-    שלב 2 — סיווג עם Llama 8B → מחזיר קטגוריה → מיפוי למודל.
-
-    מודלים בניתוב:
-      groq-compound       → מחקר רב-שלבי + אינטרנט + ריצת קוד (מחליף Tavily)
-      groq-compound-mini  → שאלה עדכנית אחת, חיפוש אינטרנט מהיר (מחליף Tavily)
-      kimi-k2             → קוד ותכנות (SWE-bench 65.8%)
-      qwen3-32b           → מתמטיקה ו-STEM (MATH 83+)
-      llama-4-maverick    → רב-לשוניות, ידע כללי רחב (MMLU Pro 80.5%)
-      llama-4-scout       → מסמכים ארוכים (קונטקסט 10M טוקן)
-      gpt-oss-120b        → מחקר עמוק ו-reasoning מורכב
-      gpt-oss-20b         → שאלות בינוניות, מהיר ומדויק
-      llama-3.3-70b       → כתיבה, עברית, הסברים (IFEval 92.1)
-      llama-3.1-8b        → שאלות קלות וקצרות (166 t/s)
-    """
     text_lower = text.lower()
 
-    # --- שלב 1: keywords חזקים ---
     kw_map = {
         "groq-compound-mini": [
             "מחיר", "price", "היום", "today", "עכשיו", "now", "חדשות", "news",
@@ -292,7 +275,6 @@ def select_model_by_keywords(text: str) -> str:
         if any(kw in text_lower for kw in keywords):
             return model_name
 
-    # --- שלב 2: סיווג חכם עם Llama 8B ---
     ollama_models = get_ollama_models()
     ollama_section = ""
     if ollama_models:
@@ -318,23 +300,21 @@ Reply with ONLY one word."""
     result = get_ai_response_universal("llama-3.1-8b-instant", [{"role": "user", "content": classify_prompt}])
     category = result.strip().upper().split()[0] if result else "WRITING"
 
-    # אם יש מודל מקומי ו-Llama 8B החליט LOCAL — בחר את הראשון ברשימה
     if category == "LOCAL" and ollama_models:
         return ollama_models[0]
 
     routing = {
-        "INTERNET":     "groq-compound-mini",   # חיפוש אינטרנט מהיר
-        "LONGDOC":      "llama-4-scout",         # קונטקסט 10M טוקן
-        "CODE":         "kimi-k2",               # SWE-bench 65.8%
-        "MATH":         "qwen3-32b",             # MATH 83+
-        "MULTILINGUAL": "llama-4-maverick",      # 200 שפות, MMLU 80.5%
-        "RESEARCH":     "gpt-oss-120b",          # 120B params, reasoning עמוק
+        "INTERNET":     "groq-compound-mini",
+        "LONGDOC":      "llama-4-scout",
+        "CODE":         "kimi-k2",
+        "MATH":         "qwen3-32b",
+        "MULTILINGUAL": "llama-4-maverick",
+        "RESEARCH":     "gpt-oss-120b",
         "WRITING":      "llama-3.3-70b-versatile",
         "SIMPLE":       "llama-3.1-8b-instant",
     }
     return routing.get(category, "llama-3.3-70b-versatile")
 
-# needs_internet_search הוסר — groq-compound ו-groq-compound-mini עושים web search בעצמם
 
 # --- ליבת ה-AI ---
 
@@ -342,10 +322,16 @@ def get_ai_response_universal(model_name, messages):
     ollama_local = get_ollama_models()
     if model_name in ollama_local:
         try:
-            res = requests.post("http://localhost:11434/api/chat",
-                                json={"model": model_name, "messages": messages, "stream": False}, timeout=120)
+            res = requests.post(
+                "http://localhost:11434/api/chat",
+                json={"model": model_name, "messages": messages, "stream": False},
+                timeout=180
+            )
             return res.json().get("message", {}).get("content", "שגיאה בתשובת אולמה")
-        except Exception as e: return f"❌ אולמה לא זמין: {e}"
+        except requests.exceptions.Timeout:
+            return "❌ timeout — Ollama לקח יותר מדי זמן. נסה שוב."
+        except Exception as e:
+            return f"❌ אולמה לא זמין: {e}"
 
     info = ALL_MODELS.get(model_name)
     if not info: return "❌ מודל לא מוכר במערכת."
@@ -360,26 +346,97 @@ def get_ai_response_universal(model_name, messages):
 
     actual_api_id = info.get("api_id", model_name)
 
+    # timeout לפי גודל מודל
+    timeout_sec = 180 if model_name in HEAVY_MODELS else 90
+
+    last_error = ""
     for key in api_keys:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
             payload = {
                 "model": actual_api_id,
-                "messages": [{"role": "system", "content": "You are a helpful assistant. Respond in Hebrew. Be accurate."}] + messages
+                "messages": [
+                    {"role": "system", "content": "You are a helpful assistant. Respond in Hebrew. Be accurate."}
+                ] + messages
             }
-            res = requests.post(url, headers=headers, json=payload, timeout=60)
+            res = requests.post(url, headers=headers, json=payload, timeout=timeout_sec)
 
             if res.status_code == 200:
                 return res.json()['choices'][0]['message']['content']
+            elif res.status_code == 429:
+                last_error = "הגעת למגבלת קצב (rate limit). נסה שוב בעוד רגע."
+                print(f"Rate limit hit on key ...{key[-4:]}")
+                continue
+            elif res.status_code in (408, 504):
+                last_error = "timeout מהשרת — המודל עמוס. נסה שוב."
+                continue
             else:
                 error_detail = res.json().get('error', {}).get('message', 'Unknown error')
+                last_error = f"שגיאה {res.status_code}: {error_detail}"
                 print(f"Provider {provider} Error: {res.status_code} - {error_detail}")
+
+        except requests.exceptions.Timeout:
+            last_error = (
+                f"⏱️ timeout לאחר {timeout_sec} שניות.\n"
+                f"המודל '{model_name}' לקח יותר מדי זמן.\n"
+                f"נסה שוב, או עבור למודל מהיר יותר עם /model"
+            )
+            print(f"Timeout on model {model_name} after {timeout_sec}s")
+            continue
         except Exception as e:
+            last_error = str(e)
             print(f"Exception during {provider} request: {e}")
             continue
 
-    return f"❌ תקלה בתקשורת עם {provider}. וודא שהטוקן תקין והמודל זמין ב-Groq."
+    return f"❌ {last_error or f'תקלה בתקשורת עם {provider}. וודא שהטוקן תקין.'}"
+
+
+# --- Typing indicator מתמשך ברקע ---
+
+async def _keep_typing(bot, chat_id: int):
+    """שולח typing indicator כל 4 שניות כל עוד מחכים לתשובה."""
+    try:
+        while True:
+            await bot.send_chat_action(chat_id=chat_id, action="typing")
+            await asyncio.sleep(4)
+    except asyncio.CancelledError:
+        pass
+
+
+# --- שליחת הודעה ארוכה בחלקים ---
+
+async def send_long_message(update: Update, text: str, parse_mode: str = "Markdown"):
+    """שולח הודעה. אם ארוכה מ-4000 תווים — מפצל לחלקים חכמים."""
+    MAX_LEN = 4000  # מרווח בטיחות מתחת ל-4096
+
+    if len(text) <= MAX_LEN:
+        try:
+            await update.message.reply_text(text, parse_mode=parse_mode)
+        except Exception:
+            await update.message.reply_text(text)
+        return
+
+    # פיצול לפי שורות
+    chunks = []
+    current = ""
+    for line in text.split("\n"):
+        if len(current) + len(line) + 1 > MAX_LEN:
+            if current:
+                chunks.append(current.strip())
+            current = line
+        else:
+            current = current + "\n" + line if current else line
+    if current.strip():
+        chunks.append(current.strip())
+
+    for i, chunk in enumerate(chunks):
+        header = f"_חלק {i+1}/{len(chunks)}_\n\n" if len(chunks) > 1 else ""
+        try:
+            await update.message.reply_text(header + chunk, parse_mode=parse_mode)
+        except Exception:
+            await update.message.reply_text(header + chunk)
+
 
 # --- טיפול בהודעות ---
 
@@ -387,7 +444,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not is_authorized(user): return
 
-    # בדיקה: האם אנחנו ממתינים לקלט מהמשתמש (newchat/delchat/chat)?
     if context.user_data.get("waiting_for"):
         await handle_waiting_input(update, context)
         return
@@ -395,37 +451,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     settings = load_settings(user.id)
     model_name = settings.get("model", DEFAULT_MODEL)
-    active_chat = settings.get("active_chat")
 
-    # ודא שצ'אט "ראשי" קיים ושיש צ'אט פעיל
     ensure_default_chat(user.id)
     active_chat = get_active_chat(user.id)
 
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    chat_id = update.effective_chat.id
 
-    current_model = model_name
-    if model_name == "auto":
-        current_model = select_model_by_keywords(user_text)
+    # הפעל typing indicator מתמשך ברקע
+    typing_task = asyncio.create_task(_keep_typing(context.bot, chat_id))
 
-    history = load_chat(user.id, active_chat)
-    history.append({"role": "user", "content": user_text})
+    try:
+        current_model = model_name
+        if model_name == "auto":
+            current_model = select_model_by_keywords(user_text)
 
-    ai_response = get_ai_response_universal(current_model, history)
+        history = load_chat(user.id, active_chat)
+        history.append({"role": "user", "content": user_text})
 
-    history.append({"role": "assistant", "content": ai_response})
-    save_chat(user.id, active_chat, history)
+        ai_response = get_ai_response_universal(current_model, history)
 
-    if model_name == "auto":
-        profile = MODEL_PROFILES.get(current_model, {})
-        emoji = profile.get("emoji", "🤖")
-        model_display = ALL_MODELS.get(current_model, {}).get("heb", current_model)
-        ai_response += f"\n\n_{emoji} נענה ע\"י: {model_display}_"
+        history.append({"role": "assistant", "content": ai_response})
+        save_chat(user.id, active_chat, history)
 
-    await update.message.reply_text(ai_response, parse_mode="Markdown")
+        if model_name == "auto":
+            profile = MODEL_PROFILES.get(current_model, {})
+            emoji = profile.get("emoji", "🤖")
+            model_display = ALL_MODELS.get(current_model, {}).get("heb", current_model)
+            ai_response += f"\n\n_{emoji} נענה ע\"י: {model_display}_"
+
+    finally:
+        # עצור typing בכל מקרה — גם בשגיאה
+        typing_task.cancel()
+        try:
+            await typing_task
+        except asyncio.CancelledError:
+            pass
+
+    await send_long_message(update, ai_response)
 
 
 async def handle_waiting_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """מטפל בקלט טקסט כשאנחנו ממתינים לתשובה מהמשתמש (לאחר פקודה ללא ארגומנט)."""
     user = update.effective_user
     waiting = context.user_data.pop("waiting_for")
     text = update.message.text.strip()
@@ -437,13 +502,15 @@ async def handle_waiting_input(update: Update, context: ContextTypes.DEFAULT_TYP
     elif waiting == "chat_name":
         await _do_switch_chat(update, context, text)
 
+
+# --- /model ---
+
 async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not is_authorized(user): return
     ollama_list = get_ollama_models()
 
     if not context.args:
-        # ===== קטגוריה 1: AUTO =====
         msg = "━━━━━━━━━━━━━━━━━━━\n"
         msg += "🧠 *מצב AUTO — ברירת מחדל מומלצת*\n"
         msg += "━━━━━━━━━━━━━━━━━━━\n"
@@ -455,7 +522,6 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "   🌐 _מזהה אוטומטית מתי נדרש חיפוש אינטרנט_\n"
         msg += f"   💡 _כל תשובה מציינת איזה מודל ענה_{ollama_note}\n\n"
 
-        # ===== קטגוריה 2: Groq Cloud =====
         msg += "━━━━━━━━━━━━━━━━━━━\n"
         msg += "⚡ *מודלי Groq Cloud — בחירה ידנית*\n"
         msg += "━━━━━━━━━━━━━━━━━━━\n"
@@ -469,14 +535,13 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f"\n   📌 _{best_for}_"
             msg += "\n"
 
-        # ===== קטגוריה 3: Ollama מקומי =====
         if ollama_list:
             msg += "\n━━━━━━━━━━━━━━━━━━━\n"
             msg += "🏠 *Local Ollama*\n"
             msg += "━━━━━━━━━━━━━━━━━━━\n"
             msg += "\n".join([f"🔹 `{m}`" for m in ollama_list]) + "\n"
 
-        msg += "\n➡️ *שינוי מודל:* `/model <name>`"
+        msg += "\n➡️ *שינוי מודל:* `/model <n>`"
         await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
@@ -503,23 +568,19 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ המודל שציינת לא קיים ברשימה.")
 
+
 # ─────────────────────────────────────────────
-#  /newchat  — יצירת צ'אט חדש
+#  /newchat
 # ─────────────────────────────────────────────
 
 async def cmd_newchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not is_authorized(user): return
     if context.args:
-        # /newchat שם הצ'אט
         await _do_newchat(update, context, " ".join(context.args))
     else:
-        # ממתינים לשם
         context.user_data["waiting_for"] = "newchat_name"
-        await update.message.reply_text(
-            "💬 *שם לצ'אט החדש?*\nכתוב את השם:",
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text("💬 *שם לצ'אט החדש?*\nכתוב את השם:", parse_mode="Markdown")
 
 async def _do_newchat(update: Update, context, name: str):
     user = update.effective_user
@@ -527,16 +588,13 @@ async def _do_newchat(update: Update, context, name: str):
     if not name:
         await update.message.reply_text("❌ שם לא יכול להיות ריק.")
         return
-    # צור קובץ ריק ועבור לצ'אט
     save_chat(user.id, name, [])
     set_active_chat(user.id, name)
-    await update.message.reply_text(
-        f"✅ צ'אט '{name}' נוצר ופעיל! 🆕"
-    )
+    await update.message.reply_text(f"✅ צ'אט '{name}' נוצר ופעיל! 🆕")
 
 
 # ─────────────────────────────────────────────
-#  /chat  — מעבר בין צ'אטים
+#  /chat
 # ─────────────────────────────────────────────
 
 async def cmd_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -546,15 +604,10 @@ async def cmd_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _do_switch_chat(update, context, " ".join(context.args))
         return
 
-    chats = list_chats(user.id)
-    active = get_active_chat(user.id)
-
-    # תמיד מוודא שראשי קיים לפני הצגת הרשימה
     ensure_default_chat(user.id)
     chats = list_chats(user.id)
     active = get_active_chat(user.id)
 
-    # כפתורים לכל צ'אט
     keyboard = chats_keyboard(user.id, "switch_chat", active=active)
     active_line = f"\nפעיל כרגע: {active}" if active else ""
     await update.message.reply_text(
@@ -568,20 +621,14 @@ async def _do_switch_chat(update: Update, context, name: str):
     name = name.strip()
     ensure_default_chat(user.id)
     chats = list_chats(user.id)
-
-    # חיפוש לא תלוי רישיות
     match = next((c for c in chats if c.lower() == name.lower()), None)
     if not match:
-        await update.message.reply_text(
-            f"❌ צ'אט '{name}' לא נמצא. השתמש ב /chat לרשימה."
-        )
+        await update.message.reply_text(f"❌ צ'אט '{name}' לא נמצא. השתמש ב /chat לרשימה.")
         return
     set_active_chat(user.id, match)
     history = load_chat(user.id, match)
     msgs = len([m for m in history if m["role"] == "user"])
-    await update.message.reply_text(
-        f"✅ עברת לצ'אט '{match}' 💬\n({msgs} הודעות קודמות)"
-    )
+    await update.message.reply_text(f"✅ עברת לצ'אט '{match}' 💬\n({msgs} הודעות קודמות)")
 
 async def callback_switch_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -592,13 +639,11 @@ async def callback_switch_chat(update: Update, context: ContextTypes.DEFAULT_TYP
     set_active_chat(user.id, name)
     history = load_chat(user.id, name)
     msgs = len([m for m in history if m["role"] == "user"])
-    await query.edit_message_text(
-        f"✅ עברת לצ'אט '{name}' 💬\n({msgs} הודעות קודמות)"
-    )
+    await query.edit_message_text(f"✅ עברת לצ'אט '{name}' 💬\n({msgs} הודעות קודמות)")
 
 
 # ─────────────────────────────────────────────
-#  /delchat  — מחיקת צ'אט
+#  /delchat
 # ─────────────────────────────────────────────
 
 async def cmd_delchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -608,7 +653,6 @@ async def cmd_delchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _do_delchat(update, context, " ".join(context.args))
         return
 
-    chats = list_chats(user.id)
     ensure_default_chat(user.id)
     chats = list_chats(user.id)
     if not chats:
@@ -631,14 +675,12 @@ async def _do_delchat(update: Update, context, name: str):
     if not match:
         await update.message.reply_text(f"❌ צ'אט '{name}' לא נמצא.")
         return
-    # אם מוחקים את ברירת המחדל — מנקים היסטוריה ויוצרים מחדש
     if match == DEFAULT_CHAT_NAME:
         save_chat(user.id, DEFAULT_CHAT_NAME, [])
         set_active_chat(user.id, DEFAULT_CHAT_NAME)
         await update.message.reply_text(f"🗑️ היסטוריית '{DEFAULT_CHAT_NAME}' נוקתה והצ'אט אופס.")
         return
     delete_chat(user.id, match)
-    # אם זה הצ'אט הפעיל — עבור לראשי
     if get_active_chat(user.id) == match:
         ensure_default_chat(user.id)
         set_active_chat(user.id, DEFAULT_CHAT_NAME)
@@ -650,7 +692,6 @@ async def callback_del_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = query.data.split(":", 1)[1]
     context.user_data.pop("waiting_for", None)
     user = query.from_user
-    # אם מוחקים את ברירת המחדל — מנקים היסטוריה ויוצרים מחדש
     if name == DEFAULT_CHAT_NAME:
         save_chat(user.id, DEFAULT_CHAT_NAME, [])
         set_active_chat(user.id, DEFAULT_CHAT_NAME)
@@ -698,7 +739,7 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
-#  Main
+#  /cancel
 # ─────────────────────────────────────────────
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -716,6 +757,10 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("אין פעולה פעילה לביטול.")
 
+
+# ─────────────────────────────────────────────
+#  Main
+# ─────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("🚀 Bot starting — Auto mode active by default")
