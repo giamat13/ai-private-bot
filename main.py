@@ -1038,6 +1038,7 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📋 *כללי*",
         "`/status` — מידע על המצב הנוכחי",
         "`/retry` — שליחה מחדש של ההודעה האחרונה",
+        "`/undo` — ביטול ההודעה האחרונה",
         "`/summarize` — סיכום הצ'אט הפעיל",
         "`/export [שם צ'אט]` — ייצוא צ'אט כקובץ .txt",
         "`/cancel` — ביטול פעולה נוכחית",
@@ -1156,6 +1157,51 @@ async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     await send_response_with_media(update, context, ai_response)
+
+
+# ─────────────────────────────────────────────
+#  /undo
+# ─────────────────────────────────────────────
+
+async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """מחיקת ההודעה האחרונה של המשתמש + תשובת הבוט שלאחריה."""
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    ensure_default_chat(user.id)
+    active_chat = get_active_chat(user.id)
+    history     = load_chat(user.id, active_chat)
+
+    if not history:
+        await update.message.reply_text("⚠️ ההיסטוריה ריקה — אין מה לבטל.")
+        return
+
+    # הסר את תשובת הבוט האחרונה (אם קיימת)
+    removed = []
+    if history and history[-1]["role"] == "assistant":
+        removed.append(history.pop())
+    # הסר את הודעת המשתמש האחרונה (אם קיימת)
+    if history and history[-1]["role"] == "user":
+        removed.append(history.pop())
+
+    if not removed:
+        await update.message.reply_text("⚠️ אין הודעה לביטול.")
+        return
+
+    save_chat(user.id, active_chat, history)
+
+    # הצג מה נמחק
+    user_msg = next((m for m in removed if m["role"] == "user"), None)
+    content  = user_msg.get("content", "") if user_msg else ""
+    if isinstance(content, list):
+        content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+    preview = content[:60] + ("..." if len(content) > 60 else "")
+
+    remaining = len([m for m in history if m["role"] == "user"])
+    await update.message.reply_text(
+        f"↩️ בוטל: _{preview}_\n\n_נשארו {remaining} הודעות בצ'אט_",
+        parse_mode="Markdown"
+    )
 
 
 # ─────────────────────────────────────────────
@@ -1583,6 +1629,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("delchat", cmd_delchat))
     app.add_handler(CommandHandler("status",    cmd_status))
     app.add_handler(CommandHandler("retry",     cmd_retry))
+    app.add_handler(CommandHandler("undo",      cmd_undo))
     app.add_handler(CommandHandler("summarize", cmd_summarize))
     app.add_handler(CommandHandler("export",    cmd_export))
     app.add_handler(CommandHandler("remember",  cmd_remember))
