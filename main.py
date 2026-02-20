@@ -163,6 +163,12 @@ ALL_MODELS = {
     "qwen3-32b":              {"provider": "groq", "api_id": "qwen/qwen3-32b",                              "heb": "Qwen 3 32B",         "speed": "חכם מאוד", "category": "groq"},
     "groq-compound":          {"provider": "groq", "api_id": "groq/compound",                               "heb": "Groq Compound",      "speed": "משולב",    "category": "groq"},
     "groq-compound-mini":     {"provider": "groq", "api_id": "groq/compound-mini",                          "heb": "Groq Compound Mini", "speed": "מיידי",    "category": "groq"},
+
+    # ===== Cerebras =====
+    "cerebras-llama3.1-8b":   {"provider": "cerebras", "api_id": "llama3.1-8b",                            "heb": "Llama 3.1 8B (Cerebras)",    "speed": "מיידי ~2200 t/s",  "category": "cerebras"},
+    "cerebras-gpt-oss-120b":  {"provider": "cerebras", "api_id": "gpt-oss-120b",                           "heb": "GPT OSS 120B (Cerebras)",    "speed": "מהיר ~3000 t/s",   "category": "cerebras"},
+    "cerebras-qwen3-235b":    {"provider": "cerebras", "api_id": "qwen-3-235b-a22b-instruct-2507",         "heb": "Qwen3 235B (Cerebras)",      "speed": "חזק ~1400 t/s",    "category": "cerebras"},
+    "cerebras-zai-glm-4.7":   {"provider": "cerebras", "api_id": "zai-glm-4.7",                            "heb": "GLM 4.7 (Cerebras)",         "speed": "איכותי ~1000 t/s", "category": "cerebras"},
 }
 
 # ===== פרופיל מודלים לבחירה אוטומטית =====
@@ -217,10 +223,32 @@ MODEL_PROFILES = {
         "emoji": "🔬",
         "description": "עד 10 חיפושי אינטרנט + ריצת קוד בענן."
     },
+    # ===== Cerebras =====
+    "cerebras-llama3.1-8b": {
+        "best_for": "שאלות קצרות וישירות, שיחות מהירות, chatbot בזמן אמת",
+        "emoji": "⚡",
+        "description": "2200 t/s על Cerebras — הכי מהיר לשאלות פשוטות. מתאים לצ'אט חי ו-batch processing."
+    },
+    "cerebras-gpt-oss-120b": {
+        "best_for": "reasoning מתקדם, קוד, מתמטיקה, מחקר עמוק — ומהיר פי 15 מ-GPU רגיל",
+        "emoji": "🚀",
+        "description": "שווה ל-o4-mini באיכות, 3000 t/s על Cerebras. מודל OpenAI ב-Apache 2.0."
+    },
+    "cerebras-qwen3-235b": {
+        "best_for": "ידע כללי, ריבוי לשונות, STEM, כתיבה, הנמקה — הכי חכם ב-Cerebras",
+        "emoji": "🌟",
+        "description": "עולה על Claude 4 Sonnet ו-GPT-4.1 ב-Artificial Analysis. 1400 t/s, 131K context."
+    },
+    "cerebras-zai-glm-4.7": {
+        "best_for": "משימות סוכן, קוד מורכב, SWE-bench, יכולות כלים מתקדמות",
+        "emoji": "🤖",
+        "description": "355B פרמטרים, המודל הכי חכם ב-Cerebras לפי Artificial Analysis. מצטיין ב-agentic tasks."
+    },
 }
 
 # מודלים כבדים שדורשים timeout ארוך
-HEAVY_MODELS = {"kimi-k2", "gpt-oss-120b", "llama-4-maverick", "groq-compound", "llama-4-scout", "qwen3-32b"}
+HEAVY_MODELS = {"kimi-k2", "gpt-oss-120b", "llama-4-maverick", "groq-compound", "llama-4-scout", "qwen3-32b",
+                "cerebras-gpt-oss-120b", "cerebras-qwen3-235b", "cerebras-zai-glm-4.7"}
 
 PRIORITY_ORDER = [
     "groq-compound",
@@ -233,6 +261,11 @@ PRIORITY_ORDER = [
     "gpt-oss-20b",
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
+    # Cerebras — גיבוי מהיר
+    "cerebras-qwen3-235b",
+    "cerebras-gpt-oss-120b",
+    "cerebras-zai-glm-4.7",
+    "cerebras-llama3.1-8b",
 ]
 
 DEFAULT_MODEL = "auto"
@@ -322,6 +355,7 @@ CODE: programming, debugging, software engineering, scripts, databases, algorith
 MATH: math, calculations, formulas, STEM, physics, chemistry, biology, statistics
 MULTILINGUAL: question in non-Hebrew/English language, OR about language/translation tasks
 RESEARCH: deep multi-step analysis, philosophy, strategy, academic, complex comparisons
+FRONTIER: extremely complex reasoning, frontier-level task, needs best possible model
 WRITING: writing, editing, summarizing, explaining, Hebrew text tasks
 SIMPLE: greeting, casual chat, simple yes/no, short factual question{ollama_section}
 
@@ -342,6 +376,7 @@ Reply with ONLY one word."""
         "MATH":         "qwen3-32b",
         "MULTILINGUAL": "llama-4-maverick",
         "RESEARCH":     "gpt-oss-120b",
+        "FRONTIER":     "cerebras-qwen3-235b",
         "WRITING":      "llama-3.3-70b-versatile",
         "SIMPLE":       "llama-3.1-8b-instant",
     }
@@ -394,7 +429,10 @@ def get_ai_response_universal(model_name, messages, user_id: int = None):
     last_error = ""
     for key in api_keys:
         try:
-            url = "https://api.groq.com/openai/v1/chat/completions"
+            if provider == "cerebras":
+                url = "https://api.cerebras.ai/v1/chat/completions"
+            else:
+                url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
             payload = {
                 "model": actual_api_id,
@@ -791,6 +829,19 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += "🏠 *Local Ollama*\n"
             msg += "━━━━━━━━━━━━━━━━━━━\n"
             msg += "\n".join([f"🔹 `{m}`" for m in ollama_list]) + "\n"
+
+        msg += "\n━━━━━━━━━━━━━━━━━━━\n"
+        msg += "🧬 *מודלי Cerebras — מהירות ייחודית על שבב WSE*\n"
+        msg += "━━━━━━━━━━━━━━━━━━━\n"
+        cerebras_models = {k: v for k, v in ALL_MODELS.items() if v.get("category") == "cerebras"}
+        for m, info in cerebras_models.items():
+            profile = MODEL_PROFILES.get(m, {})
+            best_for = profile.get("best_for", "")
+            emoji = profile.get("emoji", "🔹")
+            msg += f"{emoji} `{m}`\n   └ {info['heb']} ({info['speed']})"
+            if best_for:
+                msg += f"\n   📌 _{best_for}_"
+            msg += "\n"
 
         msg += "\n➡️ *שינוי מודל:* `/model <שם>`"
         await update.message.reply_text(msg, parse_mode="Markdown")
