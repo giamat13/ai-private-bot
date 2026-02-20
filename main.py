@@ -939,6 +939,14 @@ async def cmd_delchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     context.user_data["waiting_for"] = "delchat_name"
 
+def confirm_keyboard(yes_data: str, no_data: str = "confirm:no") -> InlineKeyboardMarkup:
+    """כפתורי אישור כן/לא."""
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ כן, מחק", callback_data=yes_data),
+        InlineKeyboardButton("❌ לא",      callback_data=no_data),
+    ]])
+
+
 async def _do_delchat(update: Update, context, name: str):
     user = update.effective_user
     name = name.strip()
@@ -948,22 +956,45 @@ async def _do_delchat(update: Update, context, name: str):
         await update.message.reply_text(f"❌ צ'אט '{name}' לא נמצא.")
         return
     if match == DEFAULT_CHAT_NAME:
-        save_chat(user.id, DEFAULT_CHAT_NAME, [])
-        set_active_chat(user.id, DEFAULT_CHAT_NAME)
-        await update.message.reply_text(f"🗑️ היסטוריית '{DEFAULT_CHAT_NAME}' נוקתה והצ'אט אופס.")
-        return
-    delete_chat(user.id, match)
-    if get_active_chat(user.id) == match:
-        ensure_default_chat(user.id)
-        set_active_chat(user.id, DEFAULT_CHAT_NAME)
-    await update.message.reply_text(f"🗑️ צ'אט '{match}' נמחק.")
+        await update.message.reply_text(
+            f"⚠️ האם לנקות את היסטוריית הצ'אט '{DEFAULT_CHAT_NAME}'?",
+            reply_markup=confirm_keyboard(f"confirm_delchat:{match}")
+        )
+    else:
+        await update.message.reply_text(
+            f"⚠️ האם למחוק את הצ'אט *'{match}'*?",
+            parse_mode="Markdown",
+            reply_markup=confirm_keyboard(f"confirm_delchat:{match}")
+        )
+
 
 async def callback_del_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """בחירה ראשונה מרשימת הצ'אטים — מציג אישור."""
     query = update.callback_query
     await query.answer()
     name = query.data.split(":", 1)[1]
     context.user_data.pop("waiting_for", None)
+
+    if name == DEFAULT_CHAT_NAME:
+        await query.edit_message_text(
+            f"⚠️ האם לנקות את היסטוריית הצ'אט '{DEFAULT_CHAT_NAME}'?",
+            reply_markup=confirm_keyboard(f"confirm_delchat:{name}")
+        )
+    else:
+        await query.edit_message_text(
+            f"⚠️ האם למחוק את הצ'אט *'{name}'*?",
+            parse_mode="Markdown",
+            reply_markup=confirm_keyboard(f"confirm_delchat:{name}")
+        )
+
+
+async def callback_confirm_delchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """אישור סופי — מבצע את המחיקה."""
+    query = update.callback_query
+    await query.answer()
+    name = query.data.split(":", 1)[1]
     user = query.from_user
+
     if name == DEFAULT_CHAT_NAME:
         save_chat(user.id, DEFAULT_CHAT_NAME, [])
         set_active_chat(user.id, DEFAULT_CHAT_NAME)
@@ -1443,6 +1474,36 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def callback_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """בחירת עובדה למחיקה — מציג אישור."""
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+    arg  = query.data.split(":", 1)[1]
+
+    memories = load_memory(user.id)
+
+    if arg == "all":
+        await query.edit_message_text(
+            "⚠️ האם למחוק את *כל* הזיכרונות?",
+            parse_mode="Markdown",
+            reply_markup=confirm_keyboard("confirm_forget:all")
+        )
+        return
+
+    idx = int(arg)
+    if 0 <= idx < len(memories):
+        fact = memories[idx]
+        await query.edit_message_text(
+            f"⚠️ האם למחוק מהזיכרון?\n`{fact}`",
+            parse_mode="Markdown",
+            reply_markup=confirm_keyboard(f"confirm_forget:{idx}")
+        )
+    else:
+        await query.edit_message_text("❌ העובדה כבר לא קיימת.")
+
+
+async def callback_confirm_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """אישור סופי — מבצע את מחיקת הזיכרון."""
     query = update.callback_query
     await query.answer()
     user = query.from_user
@@ -1529,10 +1590,16 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("memories",  cmd_memories))
     app.add_handler(CommandHandler("help",    cmd_help_list))
     app.add_handler(CommandHandler("list",    cmd_help_list))
-    app.add_handler(CallbackQueryHandler(callback_switch_chat, pattern=r"^switch_chat:"))
-    app.add_handler(CallbackQueryHandler(callback_del_chat,    pattern=r"^del_chat:"))
-    app.add_handler(CallbackQueryHandler(callback_export_chat, pattern=r"^export_chat:"))
-    app.add_handler(CallbackQueryHandler(callback_forget,      pattern=r"^forget:"))
+    app.add_handler(CallbackQueryHandler(callback_switch_chat,    pattern=r"^switch_chat:"))
+    app.add_handler(CallbackQueryHandler(callback_del_chat,       pattern=r"^del_chat:"))
+    app.add_handler(CallbackQueryHandler(callback_confirm_delchat,pattern=r"^confirm_delchat:"))
+    app.add_handler(CallbackQueryHandler(callback_export_chat,    pattern=r"^export_chat:"))
+    app.add_handler(CallbackQueryHandler(callback_forget,         pattern=r"^forget:"))
+    app.add_handler(CallbackQueryHandler(callback_confirm_forget,  pattern=r"^confirm_forget:"))
+    app.add_handler(CallbackQueryHandler(
+        lambda u, c: u.callback_query.answer() or u.callback_query.edit_message_text("❌ בוטל."),
+        pattern=r"^confirm:no$"
+    ))
     app.add_handler(CommandHandler("cancel",  cmd_cancel))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     # קבלת מדיה מהמשתמש
