@@ -357,14 +357,6 @@ if not os.path.exists(HISTORY_DIR):
 
 # --- פונקציות עזר ---
 
-def get_ollama_models():
-    try:
-        res = requests.get("http://localhost:11434/api/tags", timeout=2)
-        if res.status_code == 200:
-            return [m['name'] for m in res.json().get('models', [])]
-    except: return []
-    return []
-
 def is_authorized(user):
     if not user: return False
     if not os.path.exists(USERS_FILE):
@@ -422,13 +414,6 @@ def select_model_by_keywords(text: str) -> str:
         if any(kw in text_lower for kw in keywords):
             return model_name
 
-    ollama_models = get_ollama_models()
-    ollama_section = ""
-    if ollama_models:
-        ollama_list_str = ", ".join(ollama_models)
-        ollama_section = f"""
-LOCAL: question that can be answered by a local model (available: {ollama_list_str}) — prefer local for privacy, speed, simple/medium tasks"""
-
     classify_prompt = f"""You are a routing assistant. Classify this question into ONE category.
 
 INTERNET: needs current info — news, prices, weather, recent events, today's date facts
@@ -439,7 +424,7 @@ MULTILINGUAL: question in non-Hebrew/English language, OR about language/transla
 RESEARCH: deep multi-step analysis, philosophy, strategy, academic, complex comparisons
 FRONTIER: extremely complex reasoning, frontier-level task, needs best possible model
 WRITING: writing, editing, summarizing, explaining, Hebrew text tasks
-SIMPLE: greeting, casual chat, simple yes/no, short factual question{ollama_section}
+SIMPLE: greeting, casual chat, simple yes/no, short factual question
 
 Question: "{text}"
 
@@ -447,9 +432,6 @@ Reply with ONLY one word."""
 
     result = get_ai_response_universal("llama-3.1-8b-instant", [{"role": "user", "content": classify_prompt}])
     category = result.strip().upper().split()[0] if result else "WRITING"
-
-    if category == "LOCAL" and ollama_models:
-        return ollama_models[0]
 
     routing = {
         "INTERNET":     "groq-compound-mini",
@@ -468,20 +450,6 @@ Reply with ONLY one word."""
 # --- ליבת ה-AI ---
 
 def get_ai_response_universal(model_name, messages, user_id: int = None):
-    ollama_local = get_ollama_models()
-    if model_name in ollama_local:
-        try:
-            res = requests.post(
-                "http://localhost:11434/api/chat",
-                json={"model": model_name, "messages": messages, "stream": False},
-                timeout=180
-            )
-            return res.json().get("message", {}).get("content", "שגיאה בתשובת אולמה")
-        except requests.exceptions.Timeout:
-            return "❌ timeout — Ollama לקח יותר מדי זמן. נסה שוב."
-        except Exception as e:
-            return f"❌ אולמה לא זמין: {e}"
-
     info = ALL_MODELS.get(model_name)
     if not info: return "❌ מודל לא מוכר במערכת."
 
@@ -881,19 +849,15 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not is_authorized(user): return
-    ollama_list = get_ollama_models()
 
     if not context.args:
         msg = "━━━━━━━━━━━━━━━━━━━\n"
         msg += "🧠 *מצב AUTO — ברירת מחדל מומלצת*\n"
         msg += "━━━━━━━━━━━━━━━━━━━\n"
-        ollama_note = ""
-        if ollama_list:
-            ollama_note = f"\n   🏠 _כולל מודלים מקומיים: {', '.join(ollama_list)}_"
         msg += "`auto` — הבוט בוחר את המודל המתאים ביותר לכל שאלה\n"
         msg += "   📌 _מנתב לפי סוג: קוד / מתמטיקה / כתיבה / שיחה / מחקר / מידע עדכני_\n"
         msg += "   🌐 _מזהה אוטומטית מתי נדרש חיפוש אינטרנט_\n"
-        msg += f"   💡 _כל תשובה מציינת איזה מודל ענה_{ollama_note}\n\n"
+        msg += "   💡 _כל תשובה מציינת איזה מודל ענה_\n\n"
 
         msg += "━━━━━━━━━━━━━━━━━━━\n"
         msg += "⚡ *מודלי Groq Cloud — בחירה ידנית*\n"
@@ -907,12 +871,6 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if best_for:
                 msg += f"\n   📌 _{best_for}_"
             msg += "\n"
-
-        if ollama_list:
-            msg += "\n━━━━━━━━━━━━━━━━━━━\n"
-            msg += "🏠 *Local Ollama*\n"
-            msg += "━━━━━━━━━━━━━━━━━━━\n"
-            msg += "\n".join([f"🔹 `{m}`" for m in ollama_list]) + "\n"
 
         msg += "\n━━━━━━━━━━━━━━━━━━━\n"
         msg += "🧬 *מודלי Cerebras — מהירות ייחודית על שבב WSE*\n"
@@ -945,7 +903,7 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     new_model = context.args[0]
-    if new_model in ALL_MODELS or new_model in ollama_list:
+    if new_model in ALL_MODELS:
         user_dir = os.path.join(HISTORY_DIR, str(user.id))
         os.makedirs(user_dir, exist_ok=True)
         with open(os.path.join(user_dir, "settings.json"), 'w', encoding='utf-8') as f:
@@ -1215,9 +1173,6 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         emoji = profile.get("emoji", "🤖")
         model_display = f"{emoji} {info.get('heb', model_name)} (`{model_name}`)"
 
-    ollama = get_ollama_models()
-    ollama_line = f"✅ פעיל ({len(ollama)} מודלים)" if ollama else "❌ לא פעיל"
-
     lines = [
         "📊 *סטטוס נוכחי*",
         "━━━━━━━━━━━━━━━━━━━",
@@ -1228,8 +1183,6 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📝 הודעות בצ'אט: {user_msgs}",
         f"📏 גודל היסטוריה: {total_chars:,} תווים",
         f"📁 סה\"כ צ'אטים: {len(chats)} ({', '.join(chats)})",
-        "",
-        f"🏠 Ollama: {ollama_line}",
         "━━━━━━━━━━━━━━━━━━━",
     ]
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
