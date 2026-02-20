@@ -991,6 +991,7 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📋 *כללי*",
         "`/status` — מידע על המצב הנוכחי",
         "`/retry` — שליחה מחדש של ההודעה האחרונה",
+        "`/summarize` — סיכום הצ'אט הפעיל",
         "`/cancel` — ביטול פעולה נוכחית",
         "`/help` | `/list` — הצגת עזרה זו",
         "",
@@ -1110,6 +1111,63 @@ async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
+#  /summarize
+# ─────────────────────────────────────────────
+
+async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    ensure_default_chat(user.id)
+    active_chat = get_active_chat(user.id)
+    history     = load_chat(user.id, active_chat)
+
+    user_msgs = [m for m in history if m["role"] == "user"]
+    if len(user_msgs) < 2:
+        await update.message.reply_text("⚠️ אין מספיק הודעות בצ'אט לסיכום.")
+        return
+
+    # בנה prompt לסיכום
+    convo_text = ""
+    for m in history:
+        role  = "👤 משתמש" if m["role"] == "user" else "🤖 בוט"
+        content = m.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+        convo_text += f"{role}: {content}\n\n"
+
+    summarize_prompt = (
+        "סכם את השיחה הבאה בעברית בצורה תמציתית וברורה. "
+        "כלול: נושאים עיקריים שנדונו, החלטות או מסקנות אם יש, ונקודות חשובות. "
+        "אל תוסיף מידע שלא מופיע בשיחה.\n\n"
+        f"השיחה:\n{convo_text}"
+    )
+
+    chat_id = update.effective_chat.id
+    typing_task = asyncio.create_task(_keep_typing(context.bot, chat_id))
+
+    try:
+        # סיכום תמיד עם מודל מהיר — לא צריך את הכבד ביותר
+        settings = load_settings(user.id)
+        model_name = settings.get("model", DEFAULT_MODEL)
+        current_model = "llama-3.3-70b-versatile" if model_name == "auto" else model_name
+
+        summary = get_ai_response_universal(
+            current_model,
+            [{"role": "user", "content": summarize_prompt}]
+        )
+    finally:
+        typing_task.cancel()
+        try:
+            await typing_task
+        except asyncio.CancelledError:
+            pass
+
+    header = f"📋 *סיכום צ'אט '{active_chat}'* ({len(user_msgs)} הודעות)\n\n"
+    await send_long_message(update, header + summary)
+
+
+# ─────────────────────────────────────────────
 #  /cancel
 # ─────────────────────────────────────────────
 
@@ -1140,8 +1198,9 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("newchat", cmd_newchat))
     app.add_handler(CommandHandler("chat",    cmd_chat))
     app.add_handler(CommandHandler("delchat", cmd_delchat))
-    app.add_handler(CommandHandler("status",  cmd_status))
-    app.add_handler(CommandHandler("retry",   cmd_retry))
+    app.add_handler(CommandHandler("status",    cmd_status))
+    app.add_handler(CommandHandler("retry",     cmd_retry))
+    app.add_handler(CommandHandler("summarize", cmd_summarize))
     app.add_handler(CommandHandler("help",    cmd_help_list))
     app.add_handler(CommandHandler("list",    cmd_help_list))
     app.add_handler(CallbackQueryHandler(callback_switch_chat, pattern=r"^switch_chat:"))
