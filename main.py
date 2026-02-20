@@ -6,8 +6,8 @@ import datetime
 import sys
 import io
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
 
 # תיקון בעיית קידוד בטרמינל
 if sys.platform == "win32":
@@ -17,6 +17,102 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 HISTORY_DIR = "history"
 USERS_FILE = "allowed_users.txt"
+
+# --- מצבי שיחה (ConversationHandler) ---
+WAITING_NEWCHAT_NAME = 1
+WAITING_DELCHAT_PICK = 2
+WAITING_CHAT_PICK    = 3
+
+# --- עזר לניהול צ'אטים ---
+
+def get_user_dir(user_id: int) -> str:
+    d = os.path.join(HISTORY_DIR, str(user_id))
+    os.makedirs(d, exist_ok=True)
+    return d
+
+def settings_path(user_id: int) -> str:
+    return os.path.join(get_user_dir(user_id), "settings.json")
+
+def load_settings(user_id: int) -> dict:
+    p = settings_path(user_id)
+    if os.path.exists(p):
+        try:
+            with open(p, 'r', encoding='utf-8') as f: return json.load(f)
+        except: pass
+    return {"model": "auto", "active_chat": None}
+
+def save_settings(user_id: int, data: dict):
+    with open(settings_path(user_id), 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def chat_path(user_id: int, chat_name: str) -> str:
+    """מסלול קובץ ה-JSON של צ'אט לפי שם."""
+    safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in chat_name).strip()
+    return os.path.join(get_user_dir(user_id), f"chat_{safe}.json")
+
+def list_chats(user_id: int) -> list[str]:
+    """מחזיר רשימת שמות צ'אטים קיימים (לפי קבצי chat_*.json)."""
+    d = get_user_dir(user_id)
+    names = []
+    for f in sorted(os.listdir(d)):
+        if f.startswith("chat_") and f.endswith(".json"):
+            name = f[5:-5].replace("_", " ")
+            names.append(name)
+    return names
+
+def load_chat(user_id: int, chat_name: str) -> list:
+    p = chat_path(user_id, chat_name)
+    if os.path.exists(p):
+        try:
+            with open(p, 'r', encoding='utf-8') as f: return json.load(f)
+        except: pass
+    return []
+
+def save_chat(user_id: int, chat_name: str, history: list):
+    with open(chat_path(user_id, chat_name), 'w', encoding='utf-8') as f:
+        json.dump(history[-20:], f, ensure_ascii=False, indent=2)
+
+def delete_chat(user_id: int, chat_name: str) -> bool:
+    p = chat_path(user_id, chat_name)
+    if os.path.exists(p):
+        os.remove(p)
+        return True
+    return False
+
+def get_active_chat(user_id: int) -> str | None:
+    return load_settings(user_id).get("active_chat")
+
+def set_active_chat(user_id: int, chat_name: str | None):
+    s = load_settings(user_id)
+    s["active_chat"] = chat_name
+    save_settings(user_id, s)
+
+def chats_keyboard(user_id: int, callback_prefix: str, active: str = None) -> InlineKeyboardMarkup | None:
+    """בונה מקלדת inline עם כל הצ'אטים הקיימים. מסמן את הפעיל וה-default."""
+    chats = list_chats(user_id)
+    if not chats: return None
+    buttons = []
+    for c in chats:
+        label = "💬 "
+        if c == DEFAULT_CHAT_NAME:
+            label = "🏠 "
+        if c == active:
+            label += f"► {c}"
+        else:
+            label += c
+        buttons.append([InlineKeyboardButton(label, callback_data=f"{callback_prefix}:{c}")])
+    return InlineKeyboardMarkup(buttons)
+
+DEFAULT_CHAT_NAME = "ראשי"
+
+def ensure_default_chat(user_id: int):
+    """מוודא שצ'אט ברירת מחדל 'ראשי' תמיד קיים, ומגדיר אותו כפעיל אם אין אחר."""
+    chats = list_chats(user_id)
+    if DEFAULT_CHAT_NAME not in chats:
+        save_chat(user_id, DEFAULT_CHAT_NAME, [])
+    active = get_active_chat(user_id)
+    if not active:
+        set_active_chat(user_id, DEFAULT_CHAT_NAME)
 
 # --- הגדרות מודלים ---
 ALL_MODELS = {
@@ -290,51 +386,35 @@ def get_ai_response_universal(model_name, messages):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not is_authorized(user): return
-    user_text = update.message.text
-    user_dir = os.path.join(HISTORY_DIR, str(user.id))
-    os.makedirs(user_dir, exist_ok=True)
 
-    # טעינת הגדרות משתמש — ברירת מחדל = auto
-    model_name = DEFAULT_MODEL
-    settings_path = os.path.join(user_dir, "settings.json")
-    if os.path.exists(settings_path):
-        with open(settings_path, 'r') as f:
-            model_name = json.load(f).get('model', DEFAULT_MODEL)
+    # בדיקה: האם אנחנו ממתינים לקלט מהמשתמש (newchat/delchat/chat)?
+    if context.user_data.get("waiting_for"):
+        await handle_waiting_input(update, context)
+        return
+
+    user_text = update.message.text
+    settings = load_settings(user.id)
+    model_name = settings.get("model", DEFAULT_MODEL)
+    active_chat = settings.get("active_chat")
+
+    # ודא שצ'אט "ראשי" קיים ושיש צ'אט פעיל
+    ensure_default_chat(user.id)
+    active_chat = get_active_chat(user.id)
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
     current_model = model_name
-    final_query = user_text
-
     if model_name == "auto":
-        # ===== בחירה אוטומטית חכמה מבוססת benchmarks אמיתיים =====
-        # ⚡ llama-3.1-8b-instant    → שאלות קצרות/יומיומיות     (166 t/s)
-        # ✍️  llama-3.3-70b-versatile → כתיבה, עברית, ניתוח       (IFEval 92.1)
-        # 💻 kimi-k2                 → קוד ותכנות                (SWE-bench 65.8%)
-        # 🔢 qwen3-32b               → מתמטיקה ו-STEM             (MATH 83+)
-        # 🧠 gpt-oss-120b            → מחקר ו-reasoning מורכב    (120B params)
         current_model = select_model_by_keywords(user_text)
 
-        # חיפוש אינטרנט מטופל ע"י groq-compound / groq-compound-mini אוטומטית
-
-    # טעינת היסטוריה
-    hist_path = os.path.join(user_dir, "history.json")
-    history = []
-    if os.path.exists(hist_path):
-        with open(hist_path, 'r', encoding='utf-8') as f:
-            try: history = json.load(f)
-            except: history = []
-
+    history = load_chat(user.id, active_chat)
     history.append({"role": "user", "content": user_text})
 
-    ai_response = get_ai_response_universal(current_model, history[:-1] + [{"role": "user", "content": final_query}])
+    ai_response = get_ai_response_universal(current_model, history)
 
     history.append({"role": "assistant", "content": ai_response})
+    save_chat(user.id, active_chat, history)
 
-    with open(hist_path, 'w', encoding='utf-8') as f:
-        json.dump(history[-20:], f, ensure_ascii=False, indent=2)
-
-    # תגית מודל בסוף התשובה (רק במצב auto)
     if model_name == "auto":
         profile = MODEL_PROFILES.get(current_model, {})
         emoji = profile.get("emoji", "🤖")
@@ -342,6 +422,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ai_response += f"\n\n_{emoji} נענה ע\"י: {model_display}_"
 
     await update.message.reply_text(ai_response, parse_mode="Markdown")
+
+
+async def handle_waiting_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """מטפל בקלט טקסט כשאנחנו ממתינים לתשובה מהמשתמש (לאחר פקודה ללא ארגומנט)."""
+    user = update.effective_user
+    waiting = context.user_data.pop("waiting_for")
+    text = update.message.text.strip()
+
+    if waiting == "newchat_name":
+        await _do_newchat(update, context, text)
+    elif waiting == "delchat_name":
+        await _do_delchat(update, context, text)
+    elif waiting == "chat_name":
+        await _do_switch_chat(update, context, text)
 
 async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -390,7 +484,7 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if new_model in ALL_MODELS or new_model in ollama_list:
         user_dir = os.path.join(HISTORY_DIR, str(user.id))
         os.makedirs(user_dir, exist_ok=True)
-        with open(os.path.join(user_dir, "settings.json"), 'w') as f:
+        with open(os.path.join(user_dir, "settings.json"), 'w', encoding='utf-8') as f:
             json.dump({"model": new_model}, f)
 
         if new_model == "auto":
@@ -409,69 +503,213 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ המודל שציינת לא קיים ברשימה.")
 
-async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if not is_authorized(user): return
-    lines = [
-        "🤖 *פקודות הבוט*",
-        "━━━━━━━━━━━━━━━━━━━",
-        "",
-        "💬 *שיחה*",
-        "`/newchat` — פותח שיחה חדשה ומנקה היסטוריה",
-        "`/delchat` — מוחק לצמיתות את כל היסטוריית השיחה",
-        "",
-        "🤖 *מודל AI*",
-        "`/model` — הצגת כל המודלים הזמינים",
-        "`/model <שם>` — החלפת מודל (לדוגמה: `/model kimi-k2`)",
-        "",
-        "📋 *כללי*",
-        "`/help` — הצגת רשימת הפקודות",
-        "`/list` — הצגת רשימת הפקודות",
-        "",
-        "━━━━━━━━━━━━━━━━━━━",
-        "_💡 מצב AUTO פעיל כברירת מחדל — הבוט בוחר מודל לכל שאלה_",
-    ]
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-
+# ─────────────────────────────────────────────
+#  /newchat  — יצירת צ'אט חדש
+# ─────────────────────────────────────────────
 
 async def cmd_newchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not is_authorized(user): return
-    user_dir = os.path.join(HISTORY_DIR, str(user.id))
-    hist_path = os.path.join(user_dir, "history.json")
-    if os.path.exists(hist_path):
-        os.remove(hist_path)
+    if context.args:
+        # /newchat שם הצ'אט
+        await _do_newchat(update, context, " ".join(context.args))
+    else:
+        # ממתינים לשם
+        context.user_data["waiting_for"] = "newchat_name"
+        await update.message.reply_text(
+            "💬 *שם לצ'אט החדש?*\nכתוב את השם:",
+            parse_mode="Markdown"
+        )
+
+async def _do_newchat(update: Update, context, name: str):
+    user = update.effective_user
+    name = name.strip()
+    if not name:
+        await update.message.reply_text("❌ שם לא יכול להיות ריק.")
+        return
+    # צור קובץ ריק ועבור לצ'אט
+    save_chat(user.id, name, [])
+    set_active_chat(user.id, name)
     await update.message.reply_text(
-        "✅ *שיחה חדשה נפתחה!*\n_היסטוריה נוקתה — מתחילים מחדש_ 🆕",
-        parse_mode="Markdown"
+        f"✅ צ'אט '{name}' נוצר ופעיל! 🆕"
     )
 
+
+# ─────────────────────────────────────────────
+#  /chat  — מעבר בין צ'אטים
+# ─────────────────────────────────────────────
+
+async def cmd_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+    if context.args:
+        await _do_switch_chat(update, context, " ".join(context.args))
+        return
+
+    chats = list_chats(user.id)
+    active = get_active_chat(user.id)
+
+    # תמיד מוודא שראשי קיים לפני הצגת הרשימה
+    ensure_default_chat(user.id)
+    chats = list_chats(user.id)
+    active = get_active_chat(user.id)
+
+    # כפתורים לכל צ'אט
+    keyboard = chats_keyboard(user.id, "switch_chat", active=active)
+    active_line = f"\nפעיל כרגע: {active}" if active else ""
+    await update.message.reply_text(
+        f"💬 בחר צ'אט:{active_line}\n\nאו כתוב את שם הצ'אט:",
+        reply_markup=keyboard
+    )
+    context.user_data["waiting_for"] = "chat_name"
+
+async def _do_switch_chat(update: Update, context, name: str):
+    user = update.effective_user
+    name = name.strip()
+    ensure_default_chat(user.id)
+    chats = list_chats(user.id)
+
+    # חיפוש לא תלוי רישיות
+    match = next((c for c in chats if c.lower() == name.lower()), None)
+    if not match:
+        await update.message.reply_text(
+            f"❌ צ'אט '{name}' לא נמצא. השתמש ב /chat לרשימה."
+        )
+        return
+    set_active_chat(user.id, match)
+    history = load_chat(user.id, match)
+    msgs = len([m for m in history if m["role"] == "user"])
+    await update.message.reply_text(
+        f"✅ עברת לצ'אט '{match}' 💬\n({msgs} הודעות קודמות)"
+    )
+
+async def callback_switch_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    name = query.data.split(":", 1)[1]
+    context.user_data.pop("waiting_for", None)
+    user = query.from_user
+    set_active_chat(user.id, name)
+    history = load_chat(user.id, name)
+    msgs = len([m for m in history if m["role"] == "user"])
+    await query.edit_message_text(
+        f"✅ עברת לצ'אט '{name}' 💬\n({msgs} הודעות קודמות)"
+    )
+
+
+# ─────────────────────────────────────────────
+#  /delchat  — מחיקת צ'אט
+# ─────────────────────────────────────────────
 
 async def cmd_delchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not is_authorized(user): return
-    user_dir = os.path.join(HISTORY_DIR, str(user.id))
-    hist_path = os.path.join(user_dir, "history.json")
-    if os.path.exists(hist_path):
-        os.remove(hist_path)
-        await update.message.reply_text(
-            "🗑️ *היסטוריית השיחה נמחקה לצמיתות*",
-            parse_mode="Markdown"
-        )
-    else:
-        await update.message.reply_text(
-            "ℹ️ _אין היסטוריה למחוק_",
-            parse_mode="Markdown"
-        )
+    if context.args:
+        await _do_delchat(update, context, " ".join(context.args))
+        return
 
+    chats = list_chats(user.id)
+    ensure_default_chat(user.id)
+    chats = list_chats(user.id)
+    if not chats:
+        await update.message.reply_text("ℹ️ _אין צ'אטים למחוק_", parse_mode="Markdown")
+        return
+
+    keyboard = chats_keyboard(user.id, "del_chat", active=get_active_chat(user.id))
+    await update.message.reply_text(
+        "🗑️ *איזה צ'אט למחוק?*\n\nאו כתוב את שמו:",
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+    context.user_data["waiting_for"] = "delchat_name"
+
+async def _do_delchat(update: Update, context, name: str):
+    user = update.effective_user
+    name = name.strip()
+    chats = list_chats(user.id)
+    match = next((c for c in chats if c.lower() == name.lower()), None)
+    if not match:
+        await update.message.reply_text(f"❌ צ'אט '{name}' לא נמצא.")
+        return
+    # אם מוחקים את ברירת המחדל — מנקים היסטוריה ויוצרים מחדש
+    if match == DEFAULT_CHAT_NAME:
+        save_chat(user.id, DEFAULT_CHAT_NAME, [])
+        set_active_chat(user.id, DEFAULT_CHAT_NAME)
+        await update.message.reply_text(f"🗑️ היסטוריית '{DEFAULT_CHAT_NAME}' נוקתה והצ'אט אופס.")
+        return
+    delete_chat(user.id, match)
+    # אם זה הצ'אט הפעיל — עבור לראשי
+    if get_active_chat(user.id) == match:
+        ensure_default_chat(user.id)
+        set_active_chat(user.id, DEFAULT_CHAT_NAME)
+    await update.message.reply_text(f"🗑️ צ'אט '{match}' נמחק.")
+
+async def callback_del_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    name = query.data.split(":", 1)[1]
+    context.user_data.pop("waiting_for", None)
+    user = query.from_user
+    # אם מוחקים את ברירת המחדל — מנקים היסטוריה ויוצרים מחדש
+    if name == DEFAULT_CHAT_NAME:
+        save_chat(user.id, DEFAULT_CHAT_NAME, [])
+        set_active_chat(user.id, DEFAULT_CHAT_NAME)
+        await query.edit_message_text(f"🗑️ היסטוריית '{DEFAULT_CHAT_NAME}' נוקתה והצ'אט אופס.")
+        return
+    delete_chat(user.id, name)
+    if get_active_chat(user.id) == name:
+        ensure_default_chat(user.id)
+        set_active_chat(user.id, DEFAULT_CHAT_NAME)
+    await query.edit_message_text(f"🗑️ צ'אט '{name}' נמחק.")
+
+
+# ─────────────────────────────────────────────
+#  /help  /list
+# ─────────────────────────────────────────────
+
+async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+    active = get_active_chat(user.id) or "ראשי"
+    chats = list_chats(user.id)
+    chats_str = ", ".join(chats) if chats else "אין"
+    lines = [
+        "🤖 *פקודות הבוט*",
+        "━━━━━━━━━━━━━━━━━━━",
+        "",
+        "💬 *ניהול צ'אטים*",
+        "`/newchat [שם]` — יצירת צ'אט חדש",
+        "`/chat [שם]` — מעבר לצ'אט קיים",
+        "`/delchat [שם]` — מחיקת צ'אט",
+        "",
+        "🤖 *מודל AI*",
+        "`/model` — הצגת כל המודלים הזמינים",
+        "`/model <שם>` — החלפת מודל",
+        "",
+        "📋 *כללי*",
+        "`/help` | `/list` — הצגת עזרה זו",
+        "",
+        "━━━━━━━━━━━━━━━━━━━",
+        f"_פעיל: *{active}* | צ'אטים: {chats_str}_",
+        "_💡 AUTO פעיל — הבוט בוחר מודל לכל שאלה_",
+    ]
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+# ─────────────────────────────────────────────
+#  Main
+# ─────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("🚀 Bot starting — Auto mode active by default")
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("model",   change_model))
     app.add_handler(CommandHandler("newchat", cmd_newchat))
+    app.add_handler(CommandHandler("chat",    cmd_chat))
     app.add_handler(CommandHandler("delchat", cmd_delchat))
     app.add_handler(CommandHandler("help",    cmd_help_list))
     app.add_handler(CommandHandler("list",    cmd_help_list))
+    app.add_handler(CallbackQueryHandler(callback_switch_chat, pattern=r"^switch_chat:"))
+    app.add_handler(CallbackQueryHandler(callback_del_chat,    pattern=r"^del_chat:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
