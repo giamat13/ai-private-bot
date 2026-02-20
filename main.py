@@ -322,7 +322,7 @@ Reply with ONLY one word."""
 
 # --- ליבת ה-AI ---
 
-def get_ai_response_universal(model_name, messages):
+def get_ai_response_universal(model_name, messages, user_id: int = None):
     ollama_local = get_ollama_models()
     if model_name in ollama_local:
         try:
@@ -350,6 +350,13 @@ def get_ai_response_universal(model_name, messages):
 
     actual_api_id = info.get("api_id", model_name)
 
+    # בנה system prompt — כולל זיכרון אם קיים
+    base_system = "You are a helpful assistant. Respond in Hebrew. Be accurate."
+    if user_id:
+        mem_prompt = memory_system_prompt(user_id)
+        if mem_prompt:
+            base_system = base_system + "\n\n" + mem_prompt
+
     # timeout לפי גודל מודל
     timeout_sec = 180 if model_name in HEAVY_MODELS else 90
 
@@ -361,7 +368,7 @@ def get_ai_response_universal(model_name, messages):
             payload = {
                 "model": actual_api_id,
                 "messages": [
-                    {"role": "system", "content": "You are a helpful assistant. Respond in Hebrew. Be accurate."}
+                    {"role": "system", "content": base_system}
                 ] + messages
             }
             res = requests.post(url, headers=headers, json=payload, timeout=timeout_sec)
@@ -570,7 +577,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history = load_chat(user.id, active_chat)
         history.append({"role": "user", "content": user_text})
 
-        ai_response = get_ai_response_universal(current_model, history)
+        ai_response = get_ai_response_universal(current_model, history, user_id=user.id)
 
         history.append({"role": "assistant", "content": ai_response})
         save_chat(user.id, active_chat, history)
@@ -605,6 +612,8 @@ async def handle_waiting_input(update: Update, context: ContextTypes.DEFAULT_TYP
         await _do_switch_chat(update, context, text)
     elif waiting == "export_chat_name":
         await _do_export(update, context, text)
+    elif waiting == "remember_fact":
+        await _do_remember(update, context, text)
 
 
 # ─────────────────────────────────────────────
@@ -742,7 +751,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         messages_for_ai = load_chat(user.id, active_chat)[:-1]  # היסטוריה ללא הכניסה החדשה
         messages_for_ai.append({"role": "user", "content": user_content})
 
-        ai_response = get_ai_response_universal(current_model, messages_for_ai)
+        ai_response = get_ai_response_universal(current_model, messages_for_ai, user_id=user.id)
 
         history.append({"role": "assistant", "content": ai_response})
         save_chat(user.id, active_chat, history)
@@ -990,11 +999,16 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/model` — הצגת כל המודלים הזמינים",
         "`/model <שם>` — החלפת מודל",
         "",
+        "🧠 *זיכרון*",
+        "`/remember <עובדה>` — שמירת מידע לזיכרון קבוע",
+        "`/forget [מספר/טקסט]` — מחיקת עובדה מהזיכרון",
+        "`/memories` — הצגת כל הזיכרונות",
+        "",
         "📋 *כללי*",
         "`/status` — מידע על המצב הנוכחי",
         "`/retry` — שליחה מחדש של ההודעה האחרונה",
         "`/summarize` — סיכום הצ'אט הפעיל",
-        "`/export [שם]` — ייצוא צ'אט כקובץ .txt",
+        "`/export [שם צ'אט]` — ייצוא צ'אט כקובץ .txt",
         "`/cancel` — ביטול פעולה נוכחית",
         "`/help` | `/list` — הצגת עזרה זו",
         "",
@@ -1093,7 +1107,7 @@ async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
             current_model = select_model_by_keywords(last_user_msg)
 
         history.append({"role": "user", "content": last_user_msg})
-        ai_response = get_ai_response_universal(current_model, history)
+        ai_response = get_ai_response_universal(current_model, history, user_id=user.id)
         history.append({"role": "assistant", "content": ai_response})
         save_chat(user.id, active_chat, history)
 
@@ -1288,6 +1302,192 @@ async def callback_export_chat(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 # ─────────────────────────────────────────────
+#  /remember  /forget  /memories
+# ─────────────────────────────────────────────
+
+def memory_path(user_id: int) -> str:
+    return os.path.join(get_user_dir(user_id), "memory.json")
+
+def load_memory(user_id: int) -> list[str]:
+    p = memory_path(user_id)
+    if os.path.exists(p):
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except: pass
+    return []
+
+def save_memory(user_id: int, memories: list[str]):
+    with open(memory_path(user_id), 'w', encoding='utf-8') as f:
+        json.dump(memories, f, ensure_ascii=True, indent=2)
+
+def memory_system_prompt(user_id: int) -> str | None:
+    """מחזיר system prompt עם הזיכרונות אם קיימים — להוספה לכל בקשת AI."""
+    memories = load_memory(user_id)
+    if not memories:
+        return None
+    lines = ["מידע שחשוב לזכור על המשתמש:"]
+    for i, m in enumerate(memories, 1):
+        lines.append(f"{i}. {m}")
+    return "\n".join(lines)
+
+
+async def _do_remember(update: Update, context, fact: str):
+    user = update.effective_user
+    fact = fact.strip()
+    if not fact:
+        await update.message.reply_text("❌ לא ניתן לשמור עובדה ריקה.")
+        return
+    memories = load_memory(user.id)
+    if fact.lower() in [m.lower() for m in memories]:
+        await update.message.reply_text("ℹ️ עובדה זו כבר שמורה בזיכרון.")
+        return
+    memories.append(fact)
+    save_memory(user.id, memories)
+    await update.message.reply_text(
+        f"🧠 נשמר בזיכרון!\n`{fact}`\n\n_סה\"כ {len(memories)} עובדות שמורות_",
+        parse_mode="Markdown"
+    )
+
+
+async def cmd_remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """שמירת עובדה לזיכרון הקבוע: /remember <עובדה>"""
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    if not context.args:
+        context.user_data["waiting_for"] = "remember_fact"
+        await update.message.reply_text(
+            "🧠 *מה לזכור?*\nכתוב את העובדה שתרצה שהבוט יזכור:",
+            parse_mode="Markdown"
+        )
+        return
+
+    await _do_remember(update, context, " ".join(context.args))
+    memories = load_memory(user.id)
+
+    # בדוק כפילויות פשוטות
+    if fact.lower() in [m.lower() for m in memories]:
+        await update.message.reply_text("ℹ️ עובדה זו כבר שמורה בזיכרון.")
+        return
+
+    memories.append(fact)
+    save_memory(user.id, memories)
+    await update.message.reply_text(
+        f"🧠 נשמר בזיכרון!\n`{fact}`\n\n_סה\"כ {len(memories)} עובדות שמורות_",
+        parse_mode="Markdown"
+    )
+
+
+async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """מחיקת עובדה מהזיכרון: /forget <מספר או חלק מהטקסט>"""
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    memories = load_memory(user.id)
+    if not memories:
+        await update.message.reply_text("🧠 הזיכרון ריק — אין מה למחוק.")
+        return
+
+    if not context.args:
+        # הצג רשימה עם כפתורים למחיקה
+        buttons = []
+        for i, m in enumerate(memories, 1):
+            label = f"🗑 {i}. {m[:40]}{'...' if len(m) > 40 else ''}"
+            buttons.append([InlineKeyboardButton(label, callback_data=f"forget:{i-1}")])
+        buttons.append([InlineKeyboardButton("🗑 מחק הכל", callback_data="forget:all")])
+        await update.message.reply_text(
+            "🧠 *בחר עובדה למחיקה:*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        return
+
+    query_text = " ".join(context.args).strip()
+
+    # ניסיון מחיקה לפי מספר
+    if query_text.isdigit():
+        idx = int(query_text) - 1
+        if 0 <= idx < len(memories):
+            removed = memories.pop(idx)
+            save_memory(user.id, memories)
+            await update.message.reply_text(
+                f"🗑 נמחק מהזיכרון:\n`{removed}`\n\n_נשארו {len(memories)} עובדות_",
+                parse_mode="Markdown"
+            )
+            return
+        else:
+            await update.message.reply_text(f"❌ מספר {query_text} לא קיים. יש {len(memories)} עובדות.")
+            return
+
+    # ניסיון מחיקה לפי טקסט חלקי
+    matches = [(i, m) for i, m in enumerate(memories) if query_text.lower() in m.lower()]
+    if not matches:
+        await update.message.reply_text(f"❌ לא נמצאה עובדה המכילה: '{query_text}'")
+        return
+    if len(matches) == 1:
+        idx, removed = matches[0]
+        memories.pop(idx)
+        save_memory(user.id, memories)
+        await update.message.reply_text(
+            f"🗑 נמחק מהזיכרון:\n`{removed}`\n\n_נשארו {len(memories)} עובדות_",
+            parse_mode="Markdown"
+        )
+    else:
+        # כמה תוצאות — הצג כפתורים
+        buttons = [[InlineKeyboardButton(f"🗑 {m[:50]}", callback_data=f"forget:{i}")] for i, m in matches]
+        await update.message.reply_text(
+            f"נמצאו {len(matches)} תוצאות — בחר מה למחוק:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+
+
+async def callback_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+    arg  = query.data.split(":", 1)[1]
+
+    memories = load_memory(user.id)
+
+    if arg == "all":
+        save_memory(user.id, [])
+        await query.edit_message_text("🗑 כל הזיכרון נמחק.")
+        return
+
+    idx = int(arg)
+    if 0 <= idx < len(memories):
+        removed = memories.pop(idx)
+        save_memory(user.id, memories)
+        await query.edit_message_text(
+            f"🗑 נמחק:\n`{removed}`\n\n_נשארו {len(memories)} עובדות_",
+            parse_mode="Markdown"
+        )
+    else:
+        await query.edit_message_text("❌ העובדה כבר לא קיימת.")
+
+
+async def cmd_memories(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/memories — הצגת כל הזיכרונות השמורים"""
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    memories = load_memory(user.id)
+    if not memories:
+        await update.message.reply_text(
+            "🧠 הזיכרון ריק.\n\nהשתמש ב-`/remember <עובדה>` כדי לשמור מידע.",
+            parse_mode="Markdown"
+        )
+        return
+
+    lines = ["🧠 *הזיכרונות השמורים שלך:*", "━━━━━━━━━━━━━━━━━━━"]
+    for i, m in enumerate(memories, 1):
+        lines.append(f"{i}\\. {m}")
+    lines += ["━━━━━━━━━━━━━━━━━━━", f"_סה\"כ {len(memories)} עובדות_"]
+    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+
+
+# ─────────────────────────────────────────────
 #  /cancel
 # ─────────────────────────────────────────────
 
@@ -1300,6 +1500,7 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "delchat_name":    "מחיקת צ'אט",
         "chat_name":       "מעבר צ'אט",
         "export_chat_name":"ייצוא צ'אט",
+        "remember_fact":   "שמירת זיכרון",
     }
     if waiting:
         label = waiting_labels.get(waiting, waiting)
@@ -1323,11 +1524,15 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("retry",     cmd_retry))
     app.add_handler(CommandHandler("summarize", cmd_summarize))
     app.add_handler(CommandHandler("export",    cmd_export))
+    app.add_handler(CommandHandler("remember",  cmd_remember))
+    app.add_handler(CommandHandler("forget",    cmd_forget))
+    app.add_handler(CommandHandler("memories",  cmd_memories))
     app.add_handler(CommandHandler("help",    cmd_help_list))
     app.add_handler(CommandHandler("list",    cmd_help_list))
     app.add_handler(CallbackQueryHandler(callback_switch_chat, pattern=r"^switch_chat:"))
     app.add_handler(CallbackQueryHandler(callback_del_chat,    pattern=r"^del_chat:"))
     app.add_handler(CallbackQueryHandler(callback_export_chat, pattern=r"^export_chat:"))
+    app.add_handler(CallbackQueryHandler(callback_forget,      pattern=r"^forget:"))
     app.add_handler(CommandHandler("cancel",  cmd_cancel))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     # קבלת מדיה מהמשתמש
