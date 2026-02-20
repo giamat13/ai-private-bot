@@ -38,49 +38,73 @@ ALL_MODELS = {
 
 # ===== פרופיל מודלים לבחירה אוטומטית (מבוסס benchmarks אמיתיים) =====
 MODEL_PROFILES = {
+    # --- מודלים בניתוב AUTO ---
     "llama-3.1-8b-instant": {
         "best_for": "שיחות יומיומיות, שאלות פשוטות, סיכומים קצרים",
         "emoji": "⚡",
-        "keywords": [],
-        "description": "מהיר ביותר (166 t/s, TTFT 0.33s). מספיק לרוב השאלות הקצרות."
+        "description": "מהיר ביותר (166 t/s). מספיק לרוב השאלות הקצרות."
     },
     "llama-3.3-70b-versatile": {
-        "best_for": "כתיבה, עברית, ניתוח טקסט, תרגום, שאלות כלליות מורכבות",
+        "best_for": "כתיבה, עברית, ניתוח טקסט, תרגום, שאלות כלליות",
         "emoji": "✍️",
-        "keywords": ["כתוב", "תרגם", "נתח", "הסבר", "תאר", "write", "translate", "explain",
-                     "analyze", "describe", "summarize", "סכם"],
         "description": "מצוין בהוראות (IFEval 92.1). ביצועים שווים ל-Llama 3.1 405B."
+    },
+    "llama-4-scout": {
+        "best_for": "מסמכים ארוכים מאוד, ניתוח קוד בסקייל, עיבוד קבצים ענקיים",
+        "emoji": "📄",
+        "description": "קונטקסט 10M טוקן — הכי ארוך בעולם. MoE 109B, מהיר על GPU אחד."
+    },
+    "llama-4-maverick": {
+        "best_for": "רב-לשוניות, הנמקה מתקדמת, שאלות בשפות זרות, ידע כללי רחב",
+        "emoji": "🌍",
+        "description": "MMLU Pro 80.5%, GPQA 69.8%. עולה על GPT-4o ו-Gemini 2.0 Flash. 400B פרמטרים."
     },
     "kimi-k2": {
         "best_for": "קוד, תכנות, debugging, הנדסת תוכנה, אוטומציה",
         "emoji": "💻",
-        "keywords": ["קוד", "code", "python", "javascript", "typescript", "java", "c++", "rust", "go",
-                     "bug", "פונקצי", "script", "תכנות", "program", "develop", "debug", "api",
-                     "class", "function", "אלגוריתם", "html", "css", "sql", "git", "react", "node",
-                     "bash", "shell", "docker", "kubernetes", "framework", "library", "endpoint"],
-        "description": "מוביל open-source בקוד (SWE-bench 65.8%, LiveCodeBench 53.7). 1T פרמטרים, מצוין ב-tool use."
+        "description": "מוביל open-source בקוד (SWE-bench 65.8%). 1T פרמטרים, מצוין ב-tool use."
     },
     "qwen3-32b": {
         "best_for": "מתמטיקה, STEM, לוגיקה, חישובים, פיזיקה, כימיה",
         "emoji": "🔢",
-        "keywords": ["חשב", "מתמטיק", "משוואה", "סטטיסטיק", "math", "calculate", "formula", "proof",
-                     "physics", "chemistry", "biology", "science", "equation", "integral", "derivative",
-                     "probability", "הוכח", "פיזיק", "כימי", "ביולוג", "לוגיק", "logic", "הסתברות",
-                     "גזירה", "אינטגרל", "מטריצ", "וקטור", "trigonometry", "geometry", "algebra"],
-        "description": "מוביל ב-MATH benchmark (83+). חזק במיוחד ב-STEM ו-reasoning מתמטי."
+        "description": "מוביל ב-MATH benchmark (83+). חזק ב-STEM ו-reasoning מתמטי."
+    },
+    "gpt-oss-20b": {
+        "best_for": "שאלות בינוניות שדורשות יותר מ-8B אבל לא צריך 120B, תגובות מהירות ומדויקות",
+        "emoji": "🎯",
+        "description": "גרסה קלה ומהירה של GPT-OSS. איזון מצוין בין מהירות לאיכות."
     },
     "gpt-oss-120b": {
         "best_for": "מחקר עמוק, reasoning מורכב, פילוסופיה, השוואות, ניתוח אסטרטגי",
         "emoji": "🧠",
-        "keywords": ["מחקר", "research", "מורכב", "complex", "השווה", "compare", "evaluate", "critique",
-                     "comprehensive", "elaborate", "in-depth", "לעומק", "ניתוח מעמיק", "פילוסופ",
-                     "אסטרטגי", "strategic", "pros and cons", "יתרונות וחסרונות"],
-        "description": "המודל הגדול ביותר (120B). לניתוחים שדורשים עומק ו-reasoning מרובה שלבים."
-    }
+        "description": "המודל הגדול ביותר (120B). לניתוחים שדורשים עומק מרובה שלבים."
+    },
+    "groq-compound-mini": {
+        "best_for": "שאלות על אירועים עדכניים, מחירים, חדשות, מזג אוויר — חיפוש אינטרנט מהיר",
+        "emoji": "🔍",
+        "description": "מחפש באינטרנט בעצמו (web search מובנה). מהיר, שאלה אחת. עולה על GPT-4o-search."
+    },
+    "groq-compound": {
+        "best_for": "מחקר מרובה מקורות, ניתוח עם ריצת קוד, שאלות שדורשות כמה חיפושים",
+        "emoji": "🔬",
+        "description": "עד 10 חיפושי אינטרנט + ריצת קוד בענן. עולה על Perplexity Sonar ו-GPT-4o-search."
+    },
 }
 
-# סדר עדיפויות לבדיקת keywords (מהספציפי לכללי)
-PRIORITY_ORDER = ["kimi-k2", "qwen3-32b", "gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+# סדר עדיפויות בניתוב AUTO (מהספציפי לכללי)
+# compound-mini/compound מחליפים את Tavily — הם עושים חיפוש אינטרנט בעצמם
+PRIORITY_ORDER = [
+    "groq-compound",       # מחקר רב-שלבי עם אינטרנט + קוד
+    "groq-compound-mini",  # שאלה אחת עם אינטרנט
+    "kimi-k2",             # קוד
+    "qwen3-32b",           # מתמטיקה
+    "llama-4-maverick",    # רב-לשוניות / ידע כללי רחב
+    "llama-4-scout",       # מסמכים ארוכים
+    "gpt-oss-120b",        # מחקר עמוק
+    "gpt-oss-20b",         # בינוני
+    "llama-3.3-70b-versatile",  # כתיבה/עברית
+    "llama-3.1-8b-instant",     # ברירת מחדל קלה
+]
 
 # ברירת מחדל = auto
 DEFAULT_MODEL = "auto"
@@ -122,69 +146,99 @@ def search_tavily(query):
 
 def select_model_by_keywords(text: str) -> str:
     """
-    שלב 1 — keywords ברורים וחד-משמעיים (קוד, מתמטיקה):
-    אם יש התאמה ברורה → נתב מיד.
+    שלב 1 — keywords חזקים וחד-משמעיים → נתב מיד ללא AI call.
+    שלב 2 — סיווג עם Llama 8B → מחזיר קטגוריה → מיפוי למודל.
 
-    שלב 2 — סיווג עם Llama 8B (מהיר, חינמי):
-    שולח שאלת סיווג קצרה ומקבל תשובה מובנית.
+    מודלים בניתוב:
+      groq-compound       → מחקר רב-שלבי + אינטרנט + ריצת קוד (מחליף Tavily)
+      groq-compound-mini  → שאלה עדכנית אחת, חיפוש אינטרנט מהיר (מחליף Tavily)
+      kimi-k2             → קוד ותכנות (SWE-bench 65.8%)
+      qwen3-32b           → מתמטיקה ו-STEM (MATH 83+)
+      llama-4-maverick    → רב-לשוניות, ידע כללי רחב (MMLU Pro 80.5%)
+      llama-4-scout       → מסמכים ארוכים (קונטקסט 10M טוקן)
+      gpt-oss-120b        → מחקר עמוק ו-reasoning מורכב
+      gpt-oss-20b         → שאלות בינוניות, מהיר ומדויק
+      llama-3.3-70b       → כתיבה, עברית, הסברים (IFEval 92.1)
+      llama-3.1-8b        → שאלות קלות וקצרות (166 t/s)
     """
     text_lower = text.lower()
 
-    # --- שלב 1: keywords חזקים וחד-משמעיים ---
-    hard_code_kw = [
-        "python", "javascript", "typescript", "java", "c++", "rust", "go", "kotlin", "swift",
-        "html", "css", "sql", "bash", "shell", "dockerfile", "kubernetes", "react", "node",
-        "קוד", "code", "bug", "debug", "script", "פונקצי", "function", "class", "api",
-        "תכנות", "program", "develop", "git", "endpoint", "framework", "אלגוריתם", "compiler"
-    ]
-    hard_math_kw = [
-        "integral", "derivative", "matrix", "eigenvalue", "differential", "theorem",
-        "אינטגרל", "גזירה", "מטריצה", "משפט", "הוכחה", "proof",
-        "trigonometry", "calculus", "algebra", "geometry", "statistics", "probability",
-        "הסתברות", "סטטיסטיק", "חשבון דיפרנציאלי"
-    ]
-
-    if any(kw in text_lower for kw in hard_code_kw):
-        return "kimi-k2"
-    if any(kw in text_lower for kw in hard_math_kw):
-        return "qwen3-32b"
+    # --- שלב 1: keywords חזקים ---
+    kw_map = {
+        "groq-compound-mini": [
+            "מחיר", "price", "היום", "today", "עכשיו", "now", "חדשות", "news",
+            "מזג אוויר", "weather", "מניה", "stock", "שער חליפין", "exchange rate",
+            "אירוע", "event", "שעות פתיחה", "opening hours", "latest", "recent",
+        ],
+        "groq-compound": [
+            "חפש באינטרנט", "search the web", "מחקר עדכני", "recent research",
+            "השווה בין מוצרים", "compare products", "מה קורה עם", "what happened with",
+            "חדשות על", "news about", "עדכון על", "update on",
+        ],
+        "kimi-k2": [
+            "python", "javascript", "typescript", "java", "c++", "rust", "go", "kotlin", "swift",
+            "html", "css", "sql", "bash", "shell", "dockerfile", "kubernetes", "react", "node",
+            "קוד", "code", "bug", "debug", "script", "פונקצי", "function", "class", "api",
+            "תכנות", "program", "develop", "git", "endpoint", "framework", "אלגוריתם", "compiler",
+        ],
+        "qwen3-32b": [
+            "integral", "derivative", "matrix", "eigenvalue", "differential", "theorem",
+            "אינטגרל", "גזירה", "מטריצה", "משפט", "הוכחה", "proof",
+            "trigonometry", "calculus", "algebra", "geometry", "statistics", "probability",
+            "הסתברות", "סטטיסטיק", "חשבון דיפרנציאלי", "חשב ", "חשבי ", "כמה עולה",
+        ],
+        "llama-4-scout": [
+            "מסמך ארוך", "long document", "קובץ ענק", "huge file", "כל הקוד", "entire codebase",
+            "עשרות עמודים", "hundreds of pages", "ספר שלם", "full book",
+        ],
+    }
+    for model_name, keywords in kw_map.items():
+        if any(kw in text_lower for kw in keywords):
+            return model_name
 
     # --- שלב 2: סיווג חכם עם Llama 8B ---
-    classify_prompt = f"""You are a routing assistant. Classify the user's question into ONE category.
+    ollama_models = get_ollama_models()
+    ollama_section = ""
+    if ollama_models:
+        ollama_list_str = ", ".join(ollama_models)
+        ollama_section = f"""
+LOCAL: question that can be answered by a local model (available: {ollama_list_str}) — prefer local for privacy, speed, simple/medium tasks"""
 
-Categories:
-- SIMPLE: greetings, casual chat, simple yes/no questions, short definitions
-- WRITING: writing tasks, summaries, translations, explanations, Hebrew text, editing
-- MATH: math, calculations, numbers, formulas, science problems, physics, chemistry, biology, STEM
-- CODE: programming, code, debugging, software, scripts, algorithms, databases
-- RESEARCH: deep analysis, comparisons, strategy, philosophy, multi-step reasoning, academic topics
+    classify_prompt = f"""You are a routing assistant. Classify this question into ONE category.
 
-User question: "{text}"
+INTERNET: needs current info — news, prices, weather, recent events, today's date facts
+LONGDOC: analyzing very long documents, entire codebases, books (10M+ token context needed)
+CODE: programming, debugging, software engineering, scripts, databases, algorithms
+MATH: math, calculations, formulas, STEM, physics, chemistry, biology, statistics
+MULTILINGUAL: question in non-Hebrew/English language, OR about language/translation tasks
+RESEARCH: deep multi-step analysis, philosophy, strategy, academic, complex comparisons
+WRITING: writing, editing, summarizing, explaining, Hebrew text tasks
+SIMPLE: greeting, casual chat, simple yes/no, short factual question{ollama_section}
 
-Reply with ONLY one word from the list above."""
+Question: "{text}"
+
+Reply with ONLY one word."""
 
     result = get_ai_response_universal("llama-3.1-8b-instant", [{"role": "user", "content": classify_prompt}])
     category = result.strip().upper().split()[0] if result else "WRITING"
 
+    # אם יש מודל מקומי ו-Llama 8B החליט LOCAL — בחר את הראשון ברשימה
+    if category == "LOCAL" and ollama_models:
+        return ollama_models[0]
+
     routing = {
-        "SIMPLE":   "llama-3.1-8b-instant",
-        "WRITING":  "llama-3.3-70b-versatile",
-        "MATH":     "qwen3-32b",
-        "CODE":     "kimi-k2",
-        "RESEARCH": "gpt-oss-120b",
+        "INTERNET":     "groq-compound-mini",   # חיפוש אינטרנט מהיר
+        "LONGDOC":      "llama-4-scout",         # קונטקסט 10M טוקן
+        "CODE":         "kimi-k2",               # SWE-bench 65.8%
+        "MATH":         "qwen3-32b",             # MATH 83+
+        "MULTILINGUAL": "llama-4-maverick",      # 200 שפות, MMLU 80.5%
+        "RESEARCH":     "gpt-oss-120b",          # 120B params, reasoning עמוק
+        "WRITING":      "llama-3.3-70b-versatile",
+        "SIMPLE":       "llama-3.1-8b-instant",
     }
     return routing.get(category, "llama-3.3-70b-versatile")
 
-def needs_internet_search(text: str) -> bool:
-    """זיהוי שאלות שדורשות מידע עדכני מהאינטרנט."""
-    internet_keywords = [
-        "מחיר", "price", "היום", "today", "עכשיו", "now", "חדשות", "news",
-        "מזג אוויר", "weather", "מניה", "stock", "שער", "rate", "exchange",
-        "אירוע", "event", "מתי נפתח", "שעות פעילות", "opening hours",
-        "עדכון", "update", "אחרון", "latest", "recent", "2024", "2025", "2026"
-    ]
-    text_lower = text.lower()
-    return any(kw in text_lower for kw in internet_keywords)
+# needs_internet_search הוסר — groq-compound ו-groq-compound-mini עושים web search בעצמם
 
 # --- ליבת ה-AI ---
 
@@ -261,9 +315,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 🧠 gpt-oss-120b            → מחקר ו-reasoning מורכב    (120B params)
         current_model = select_model_by_keywords(user_text)
 
-        if needs_internet_search(user_text):
-            search_data = search_tavily(user_text)
-            final_query = f"מידע מהאינטרנט:\n{search_data}\n\nשאלה: {user_text}"
+        # חיפוש אינטרנט מטופל ע"י groq-compound / groq-compound-mini אוטומטית
 
     # טעינת היסטוריה
     hist_path = os.path.join(user_dir, "history.json")
@@ -301,10 +353,13 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = "━━━━━━━━━━━━━━━━━━━\n"
         msg += "🧠 *מצב AUTO — ברירת מחדל מומלצת*\n"
         msg += "━━━━━━━━━━━━━━━━━━━\n"
+        ollama_note = ""
+        if ollama_list:
+            ollama_note = f"\n   🏠 _כולל מודלים מקומיים: {', '.join(ollama_list)}_"
         msg += "`auto` — הבוט בוחר את המודל המתאים ביותר לכל שאלה\n"
-        msg += "   📌 _מנתב לפי סוג: קוד / מתמטיקה / כתיבה / שיחה / מחקר_\n"
-        msg += "   🌐 _מזהה אוטומטית מתי לחפש באינטרנט_\n"
-        msg += "   💡 _כל תשובה מציינת איזה מודל ענה_\n\n"
+        msg += "   📌 _מנתב לפי סוג: קוד / מתמטיקה / כתיבה / שיחה / מחקר / מידע עדכני_\n"
+        msg += "   🌐 _מזהה אוטומטית מתי נדרש חיפוש אינטרנט_\n"
+        msg += f"   💡 _כל תשובה מציינת איזה מודל ענה_{ollama_note}\n\n"
 
         # ===== קטגוריה 2: Groq Cloud =====
         msg += "━━━━━━━━━━━━━━━━━━━\n"
