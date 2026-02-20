@@ -354,9 +354,69 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ המודל שציינת לא קיים ברשימה.")
 
-if __name__ == '__main__':
+async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+    lines = [
+        "🤖 *פקודות הבוט*",
+        "━━━━━━━━━━━━━━━━━━━",
+        "",
+        "💬 *שיחה*",
+        "`/newchat` — פותח שיחה חדשה ומנקה היסטוריה",
+        "`/delchat` — מוחק לצמיתות את כל היסטוריית השיחה",
+        "",
+        "🤖 *מודל AI*",
+        "`/model` — הצגת כל המודלים הזמינים",
+        "`/model <שם>` — החלפת מודל (לדוגמה: `/model kimi-k2`)",
+        "",
+        "📋 *כללי*",
+        "`/help` — הצגת רשימת הפקודות",
+        "`/list` — הצגת רשימת הפקודות",
+        "",
+        "━━━━━━━━━━━━━━━━━━━",
+        "_💡 מצב AUTO פעיל כברירת מחדל — הבוט בוחר מודל לכל שאלה_",
+    ]
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_newchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+    user_dir = os.path.join(HISTORY_DIR, str(user.id))
+    hist_path = os.path.join(user_dir, "history.json")
+    if os.path.exists(hist_path):
+        os.remove(hist_path)
+    await update.message.reply_text(
+        "✅ *שיחה חדשה נפתחה!*\n_היסטוריה נוקתה — מתחילים מחדש_ 🆕",
+        parse_mode="Markdown"
+    )
+
+
+async def cmd_delchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+    user_dir = os.path.join(HISTORY_DIR, str(user.id))
+    hist_path = os.path.join(user_dir, "history.json")
+    if os.path.exists(hist_path):
+        os.remove(hist_path)
+        await update.message.reply_text(
+            "🗑️ *היסטוריית השיחה נמחקה לצמיתות*",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            "ℹ️ _אין היסטוריה למחוק_",
+            parse_mode="Markdown"
+        )
+
+
+if __name__ == "__main__":
     print("🚀 Bot starting — Auto mode active by default")
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("model", change_model))
+    app.add_handler(CommandHandler("model",   change_model))
+    app.add_handler(CommandHandler("newchat", cmd_newchat))
+    app.add_handler(CommandHandler("delchat", cmd_delchat))
+    app.add_handler(CommandHandler("help",    cmd_help_list))
+    app.add_handler(CommandHandler("list",    cmd_help_list))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
