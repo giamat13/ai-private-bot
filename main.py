@@ -22,6 +22,7 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 HISTORY_DIR = "history"
 USERS_FILE = "allowed_users.txt"
+ADMIN_USERNAME = "Giamat13"  # מקבל התראות אדמין
 
 # --- מצבי שיחה (ConversationHandler) ---
 WAITING_NEWCHAT_NAME = 1
@@ -29,6 +30,35 @@ WAITING_DELCHAT_PICK = 2
 WAITING_CHAT_PICK    = 3
 
 # --- עזר לניהול צ'אטים ---
+
+def decode_unicode_escapes(obj):
+    """ממיר רקורסיבית unicode escapes (כגון \\u05d4) לטקסט רגיל בכל מחרוזות ה-JSON."""
+    if isinstance(obj, str):
+        try:
+            return obj.encode('utf-8').decode('unicode_escape').encode('latin-1').decode('utf-8')
+        except Exception:
+            return obj
+    elif isinstance(obj, list):
+        return [decode_unicode_escapes(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {decode_unicode_escapes(k): decode_unicode_escapes(v) for k, v in obj.items()}
+    return obj
+
+def needs_decode(obj) -> bool:
+    """בודק אם האובייקט מכיל unicode escapes שצריכים המרה."""
+    if isinstance(obj, str):
+        return '\\u' in obj or ('u05' in obj and len(obj) > 4)
+    elif isinstance(obj, list):
+        return any(needs_decode(i) for i in obj)
+    elif isinstance(obj, dict):
+        return any(needs_decode(v) for v in obj.values())
+    return False
+
+def safe_decode(obj):
+    """ממיר unicode escapes רק אם הם נוכחים, אחרת מחזיר כמו שהוא."""
+    if needs_decode(obj):
+        return decode_unicode_escapes(obj)
+    return obj
 
 def get_user_dir(user_id: int) -> str:
     d = os.path.join(HISTORY_DIR, str(user_id))
@@ -42,13 +72,13 @@ def load_settings(user_id: int) -> dict:
     p = settings_path(user_id)
     if os.path.exists(p):
         try:
-            with open(p, 'r', encoding='utf-8') as f: return json.load(f)
+            with open(p, 'r', encoding='utf-8') as f: return safe_decode(json.load(f))
         except: pass
     return {"model": "auto", "active_chat": None}
 
 def save_settings(user_id: int, data: dict):
     with open(settings_path(user_id), 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=True, indent=2)
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 # --- סטטיסטיקות שימוש ---
 
@@ -59,13 +89,13 @@ def load_stats(user_id: int) -> dict:
     p = stats_path(user_id)
     if os.path.exists(p):
         try:
-            with open(p, 'r', encoding='utf-8') as f: return json.load(f)
+            with open(p, 'r', encoding='utf-8') as f: return safe_decode(json.load(f))
         except: pass
     return {"total_messages": 0, "models": {}, "first_use": None, "last_use": None}
 
 def save_stats(user_id: int, data: dict):
     with open(stats_path(user_id), 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=True, indent=2)
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 def track_usage(user_id: int, model_name: str):
     """מתעד שימוש — קוראים לזה אחרי כל תשובה מוצלחת."""
@@ -97,13 +127,13 @@ def load_chat(user_id: int, chat_name: str) -> list:
     p = chat_path(user_id, chat_name)
     if os.path.exists(p):
         try:
-            with open(p, 'r', encoding='utf-8') as f: return json.load(f)
+            with open(p, 'r', encoding='utf-8') as f: return safe_decode(json.load(f))
         except: pass
     return []
 
 def save_chat(user_id: int, chat_name: str, history: list):
     with open(chat_path(user_id, chat_name), 'w', encoding='utf-8') as f:
-        json.dump(history[-20:], f, ensure_ascii=True, indent=2)
+        json.dump(history[-20:], f, ensure_ascii=False, indent=2)
 
 def delete_chat(user_id: int, chat_name: str) -> bool:
     p = chat_path(user_id, chat_name)
@@ -167,7 +197,6 @@ ALL_MODELS = {
     # ===== Cerebras =====
     "cerebras-llama3.1-8b":   {"provider": "cerebras", "api_id": "llama3.1-8b",                            "heb": "Llama 3.1 8B (Cerebras)",    "speed": "מיידי ~2200 t/s",  "category": "cerebras"},
     "cerebras-gpt-oss-120b":  {"provider": "cerebras", "api_id": "gpt-oss-120b",                           "heb": "GPT OSS 120B (Cerebras)",    "speed": "מהיר ~3000 t/s",   "category": "cerebras"},
-    "cerebras-qwen3-235b":    {"provider": "cerebras", "api_id": "qwen-3-235b-a22b-instruct-2507",         "heb": "Qwen3 235B (Cerebras)",      "speed": "חזק ~1400 t/s",    "category": "cerebras"},
     "cerebras-zai-glm-4.7":   {"provider": "cerebras", "api_id": "zai-glm-4.7",                            "heb": "GLM 4.7 (Cerebras)",         "speed": "איכותי ~1000 t/s", "category": "cerebras"},
 
     # ===== Google Gemini =====
@@ -432,13 +461,13 @@ def load_blocked() -> dict:
     if os.path.exists(BLOCKED_MODELS_FILE):
         try:
             with open(BLOCKED_MODELS_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                return safe_decode(json.load(f))
         except: pass
     return {}
 
 def save_blocked(data: dict):
     with open(BLOCKED_MODELS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=True, indent=2)
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 def _clean_expired_blocks(blocked: dict) -> dict:
     now = datetime.datetime.now().timestamp()
@@ -595,7 +624,7 @@ Reply with ONLY one word."""
         "MATH":         "qwen3-32b",
         "MULTILINGUAL": "llama-4-maverick",
         "RESEARCH":     "gpt-oss-120b",
-        "FRONTIER":     "cerebras-qwen3-235b",
+        "FRONTIER":     "cerebras-gpt-oss-120b",
         "WRITING":      "llama-3.3-70b-versatile",
         "SIMPLE":       "llama-3.1-8b-instant",
     }
@@ -613,6 +642,36 @@ Reply with ONLY one word."""
             return fallback
 
     return chosen  # אין ברירה
+
+
+# --- התראות 404 לאדמין ---
+_pending_404_alerts: dict = {}  # model_name → {api_id, provider, error}
+
+async def flush_404_alerts(bot):
+    """שולח לאדמין (Giamat13) התראות על מודלים שהחזירו 404. נקרא אחרי כל תשובה."""
+    if not _pending_404_alerts:
+        return
+    for model_key, info in list(_pending_404_alerts.items()):
+        try:
+            heb_name = ALL_MODELS.get(model_key, {}).get("heb", model_key)
+            msg = (
+                f"⚠️ *התראת מודל — 404 Not Found*\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"🤖 מודל: `{model_key}` ({heb_name})\n"
+                f"🔗 API ID: `{info['api_id']}`\n"
+                f"🏢 ספק: *{info['provider']}*\n"
+                f"❌ שגיאה: {info['error']}\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"_המודל לא קיים או הוסר. יש לעדכן את הקוד._"
+            )
+            await bot.send_message(
+                chat_id=f"@{ADMIN_USERNAME}",
+                text=msg,
+                parse_mode="Markdown"
+            )
+            del _pending_404_alerts[model_key]
+        except Exception as e:
+            print(f"Failed to send 404 alert to admin: {e}")
 
 
 # --- ליבת ה-AI ---
@@ -667,6 +726,17 @@ def get_ai_response_universal(model_name, messages, user_id: int = None):
 
             if res.status_code == 200:
                 return res.json()['choices'][0]['message']['content']
+            elif res.status_code == 404:
+                error_detail = res.json().get('error', {}).get('message', 'Model not found')
+                last_error = f"המודל `{model_name}` לא נמצא (404) — ייתכן שהוא הוסר."
+                print(f"404 Not Found: {model_name} — {error_detail}")
+                # סמן שצריך לשלוח התראה לאדמין
+                _pending_404_alerts[model_name] = {
+                    "api_id": actual_api_id,
+                    "provider": provider,
+                    "error": error_detail,
+                }
+                break  # אין טעם לנסות מפתחות נוספים — המודל לא קיים
             elif res.status_code == 429:
                 last_error = "הגעת למגבלת קצב (rate limit). נסה שוב בעוד רגע."
                 print(f"Rate limit hit on key ...{key[-4:]}")
@@ -860,6 +930,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except asyncio.CancelledError:
             pass
 
+    await flush_404_alerts(context.bot)
     await send_response_with_media(update, context, ai_response)
 
 
@@ -1013,6 +1084,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except asyncio.CancelledError:
             pass
 
+    await flush_404_alerts(context.bot)
     await send_response_with_media(update, context, ai_response)
 
 
@@ -1408,6 +1480,7 @@ async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except asyncio.CancelledError:
             pass
 
+    await flush_404_alerts(context.bot)
     await send_response_with_media(update, context, ai_response)
 
 
@@ -1693,13 +1766,13 @@ def load_memory(user_id: int) -> list[str]:
     if os.path.exists(p):
         try:
             with open(p, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                return safe_decode(json.load(f))
         except: pass
     return []
 
 def save_memory(user_id: int, memories: list[str]):
     with open(memory_path(user_id), 'w', encoding='utf-8') as f:
-        json.dump(memories, f, ensure_ascii=True, indent=2)
+        json.dump(memories, f, ensure_ascii=False, indent=2)
 
 def memory_system_prompt(user_id: int) -> str | None:
     memories = load_memory(user_id)
@@ -1895,7 +1968,7 @@ def load_tone(user_id: int) -> dict:
     if os.path.exists(p):
         try:
             with open(p, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+                data = safe_decode(json.load(f))
                 if isinstance(data, str):
                     t = TONES.get(data, {})
                     return {"name": data, "prompt": t.get("prompt", data)}
@@ -1905,7 +1978,7 @@ def load_tone(user_id: int) -> dict:
 
 def save_tone(user_id: int, name: str, prompt: str):
     with open(tone_path(user_id), 'w', encoding='utf-8') as f:
-        json.dump({"name": name, "prompt": prompt}, f, ensure_ascii=True)
+        json.dump({"name": name, "prompt": prompt}, f, ensure_ascii=False)
 
 def tone_system_prompt(user_id: int) -> str:
     return load_tone(user_id).get("prompt", "")
