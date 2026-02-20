@@ -166,7 +166,7 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ollama_list = get_ollama_models()
     
     if not context.args:
-        msg = "🤖 **מודלים פעילים (OpenAI מושבת):**\n"
+        msg = "🤖 **מודלים פעילים:**\n"
         msg += "\n".join([f"🔹 `{m}` - {info['heb']}" for m, info in ALL_MODELS.items()])
         if ollama_list:
             msg += "\n\n🏠 **Ollama:**\n" + "\n".join([f"🔹 `{m}`" for m in ollama_list])

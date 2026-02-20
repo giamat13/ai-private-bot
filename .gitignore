@@ -210,4 +210,4 @@ __marimo__/
 # The bot
 history/
 
-vscode/
+.vscode/
