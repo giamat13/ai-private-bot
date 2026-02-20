@@ -170,6 +170,16 @@ ALL_MODELS = {
     "cerebras-qwen3-235b":    {"provider": "cerebras", "api_id": "qwen-3-235b-a22b-instruct-2507",         "heb": "Qwen3 235B (Cerebras)",      "speed": "חזק ~1400 t/s",    "category": "cerebras"},
     "cerebras-zai-glm-4.7":   {"provider": "cerebras", "api_id": "zai-glm-4.7",                            "heb": "GLM 4.7 (Cerebras)",         "speed": "איכותי ~1000 t/s", "category": "cerebras"},
 
+    # ===== Google Gemini =====
+    # לימיט per-project (RPM/TPM משותף לכל הפרויקט, RPD per-model)
+    # Free tier (פברואר 2026): Flash-Lite=1000RPD/15RPM, Flash=250RPD/10RPM, Pro=100RPD/5RPM
+    # scope=provider כי RPM חולק → חסימת RPM תחסום את כל Gemini
+    "gemini-2.5-flash-lite":  {"provider": "gemini", "api_id": "gemini-2.5-flash-lite",        "heb": "Gemini 2.5 Flash-Lite", "speed": "מיידי 1M ctx",  "category": "gemini"},
+    "gemini-2.5-flash":       {"provider": "gemini", "api_id": "gemini-2.5-flash",              "heb": "Gemini 2.5 Flash",      "speed": "מהיר 1M ctx",   "category": "gemini"},
+    "gemini-2.5-pro":         {"provider": "gemini", "api_id": "gemini-2.5-pro",                "heb": "Gemini 2.5 Pro",        "speed": "עוצמתי",         "category": "gemini"},
+    "gemini-3-flash":         {"provider": "gemini", "api_id": "gemini-3-flash-preview",         "heb": "Gemini 3 Flash",        "speed": "חדיש מהיר",      "category": "gemini"},
+    "gemini-3-pro":           {"provider": "gemini", "api_id": "gemini-3-pro-preview",           "heb": "Gemini 3 Pro",          "speed": "הכי חכם",        "category": "gemini"},
+
     # ===== Mistral =====
     # --- Generalist ---
     "mistral-large":          {"provider": "mistral", "api_id": "mistral-large-latest",              "heb": "Mistral Large 3",        "speed": "עוצמתי",     "category": "mistral"},
@@ -261,6 +271,32 @@ MODEL_PROFILES = {
         "emoji": "🤖",
         "description": "355B פרמטרים, המודל הכי חכם ב-Cerebras לפי Artificial Analysis. מצטיין ב-agentic tasks."
     },
+    # ===== Google Gemini =====
+    "gemini-2.5-flash-lite": {
+        "best_for": "batch גדול, עיבוד מסמכים ארוכים, שאלות פשוטות, מיון — הכי גדול RPD חינמי (1000/יום)",
+        "emoji": "💡",
+        "description": "הכי מהיר ב-Gemini 2.5, 1M context. Free tier: 1,000 RPD / 15 RPM. משתלם מאוד."
+    },
+    "gemini-2.5-flash": {
+        "best_for": "שאלות כלליות, כתיבה, קוד, תמונות, מסמכים, ריבוי לשונות — מאוזן מצוין",
+        "emoji": "⚡",
+        "description": "המודל הכי פופולרי של Google. 1M context, vision, thinking mode. Free: 250 RPD."
+    },
+    "gemini-2.5-pro": {
+        "best_for": "reasoning מורכב, קוד ארוך, ניתוח מסמכים ענקיים, שאלות STEM מתקדמות",
+        "emoji": "💎",
+        "description": "הכי חכם ב-2.5. Thinking mode מובנה. Free: 100 RPD / 5 RPM — לשמור לשאלות כבדות."
+    },
+    "gemini-3-flash": {
+        "best_for": "שיחות מהירות, כתיבה, ידע כללי — חזק כמו Pro דורות קודמים, מהיר יותר",
+        "emoji": "🌠",
+        "description": "Gemini 3 Flash Preview — מאזן frontier intelligence עם מהירות ומחיר."
+    },
+    "gemini-3-pro": {
+        "best_for": "המשימות הכי קשות: reasoning מולטי-שלבי, vibe coding, ניתוח מעמיק, agentic workflows",
+        "emoji": "🏆",
+        "description": "הכי חכם של Google (פברואר 2026). State-of-the-art multimodal, 1M context."
+    },
     # ===== Mistral =====
     "mistral-large": {
         "best_for": "כתיבה מורכבת, ניתוח עמוק, ריבוי לשונות, ידע כללי, שאלות משפטיות ועסקיות",
@@ -322,7 +358,8 @@ MODEL_PROFILES = {
 # מודלים כבדים שדורשים timeout ארוך
 HEAVY_MODELS = {"kimi-k2", "gpt-oss-120b", "llama-4-maverick", "groq-compound", "llama-4-scout", "qwen3-32b",
                 "cerebras-gpt-oss-120b", "cerebras-qwen3-235b", "cerebras-zai-glm-4.7",
-                "mistral-large", "magistral-medium", "magistral-small", "devstral"}
+                "mistral-large", "magistral-medium", "magistral-small", "devstral",
+                "gemini-2.5-pro", "gemini-3-flash", "gemini-3-pro"}
 
 PRIORITY_ORDER = [
     "groq-compound",
@@ -340,6 +377,12 @@ PRIORITY_ORDER = [
     "cerebras-gpt-oss-120b",
     "cerebras-zai-glm-4.7",
     "cerebras-llama3.1-8b",
+    # Gemini — גיבוי עם 1M context
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+    "gemini-3-flash",
+    "gemini-3-pro",
     # Mistral — גיבוי איכותי
     "mistral-large",
     "mistral-medium",
@@ -352,10 +395,117 @@ PRIORITY_ORDER = [
 
 DEFAULT_MODEL = "auto"
 
+# ─────────────────────────────────────────────
+#  הגדרות חסימה לפי ספק
+#  scope "model"    = חוסם רק את המודל הספציפי
+#  scope "provider" = חוסם את כל הספק
+#
+#  Groq   — לימיט per-model (RPM/RPD/TPM/TPD נפרד לכל מודל)
+#            TPM מתאפס כל דקה → חסימה דקה אחת
+#  Mistral — לימיט per-workspace (כל המודלים ביחד)
+#            TPM מתאפס כל דקה → חוסם את כל Mistral לדקה
+#  Cerebras — לימיט per-model, token-bucket רציף
+#             מתאפס אחרי ~דקה → חסימה דקה אחת
+# ─────────────────────────────────────────────
+PROVIDER_BLOCK_CONFIG = {
+    "groq":     {"scope": "model",    "duration_seconds": 60},
+    "mistral":  {"scope": "provider", "duration_seconds": 60},
+    "cerebras": {"scope": "model",    "duration_seconds": 60},
+    # Gemini: RPM/TPM משותף לכל הפרויקט → חסימת provider
+    # RPD per-model ומתאפס בחצות PT → אם הודעת שגיאה היא RPD, נחסום רק את המודל הספציפי
+    # ברירת מחדל: scope=provider (RPM שכיח יותר)
+    "gemini":   {"scope": "provider", "duration_seconds": 60},
+}
+
+BLOCKED_MODELS_FILE = os.path.join(HISTORY_DIR, "blocked_models.json")
+
 if not os.path.exists(HISTORY_DIR):
     os.makedirs(HISTORY_DIR)
 
 # --- פונקציות עזר ---
+
+# ─────────────────────────────────────────────
+#  פונקציות חסימת מודלים
+# ─────────────────────────────────────────────
+
+def load_blocked() -> dict:
+    if os.path.exists(BLOCKED_MODELS_FILE):
+        try:
+            with open(BLOCKED_MODELS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except: pass
+    return {}
+
+def save_blocked(data: dict):
+    with open(BLOCKED_MODELS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=True, indent=2)
+
+def _clean_expired_blocks(blocked: dict) -> dict:
+    now = datetime.datetime.now().timestamp()
+    return {k: v for k, v in blocked.items() if v == -1 or v > now}
+
+def is_model_blocked(model_name: str) -> tuple:
+    """מחזיר (True/False, הסבר). מנקה חסימות שפגו."""
+    blocked = load_blocked()
+    clean   = _clean_expired_blocks(blocked)
+    if len(clean) != len(blocked):
+        save_blocked(clean)
+        blocked = clean
+
+    now = datetime.datetime.now().timestamp()
+
+    if model_name in blocked:
+        val = blocked[model_name]
+        if val == -1:
+            return True, "חסום ידנית"
+        remaining = max(1, int(val - now))
+        return True, f"חסום עוד {remaining}ש׳"
+
+    provider = ALL_MODELS.get(model_name, {}).get("provider", "")
+    pkey = f"_provider_{provider}"
+    if pkey in blocked:
+        val = blocked[pkey]
+        if val == -1:
+            return True, f"ספק {provider} חסום ידנית"
+        remaining = max(1, int(val - now))
+        return True, f"ספק {provider} חסום עוד {remaining}ש׳"
+
+    return False, ""
+
+def block_model_by_name(model_name: str) -> dict:
+    """חוסם מודל/ספק לפי PROVIDER_BLOCK_CONFIG. מחזיר פרטי החסימה."""
+    info     = ALL_MODELS.get(model_name, {})
+    provider = info.get("provider", "groq")
+    cfg      = PROVIDER_BLOCK_CONFIG.get(provider, {"scope": "model", "duration_seconds": 60})
+
+    blocked  = load_blocked()
+    clean    = _clean_expired_blocks(blocked)
+    now      = datetime.datetime.now().timestamp()
+    unblock  = now + cfg["duration_seconds"]
+
+    scope_key = f"_provider_{provider}" if cfg["scope"] == "provider" else model_name
+    clean[scope_key] = unblock
+    save_blocked(clean)
+
+    return {
+        "scope":    cfg["scope"],
+        "provider": provider,
+        "model":    model_name,
+        "duration": cfg["duration_seconds"],
+        "key":      scope_key,
+    }
+
+def get_blocked_display() -> dict:
+    """מחזיר dict של מה שחסום כרגע: key → שניות נותרות (או -1 לעד)."""
+    blocked = load_blocked()
+    clean   = _clean_expired_blocks(blocked)
+    if len(clean) != len(blocked):
+        save_blocked(clean)
+    now = datetime.datetime.now().timestamp()
+    result = {}
+    for k, v in clean.items():
+        result[k] = -1 if v == -1 else max(1, int(v - now))
+    return result
 
 def is_authorized(user):
     if not user: return False
@@ -410,9 +560,14 @@ def select_model_by_keywords(text: str) -> str:
             "עשרות עמודים", "hundreds of pages", "ספר שלם", "full book",
         ],
     }
-    for model_name, keywords in kw_map.items():
+
+    # דלג על מפתחות חסומים ב-kw_map
+    for model_key, keywords in kw_map.items():
+        blocked, _ = is_model_blocked(model_key)
+        if blocked:
+            continue
         if any(kw in text_lower for kw in keywords):
-            return model_name
+            return model_key
 
     classify_prompt = f"""You are a routing assistant. Classify this question into ONE category.
 
@@ -435,7 +590,7 @@ Reply with ONLY one word."""
 
     routing = {
         "INTERNET":     "groq-compound-mini",
-        "LONGDOC":      "llama-4-scout",
+        "LONGDOC":      "llama-4-scout",      # 10M context, אם חסום → gemini-2.5-flash (1M)
         "CODE":         "kimi-k2",
         "MATH":         "qwen3-32b",
         "MULTILINGUAL": "llama-4-maverick",
@@ -444,7 +599,20 @@ Reply with ONLY one word."""
         "WRITING":      "llama-3.3-70b-versatile",
         "SIMPLE":       "llama-3.1-8b-instant",
     }
-    return routing.get(category, "llama-3.3-70b-versatile")
+
+    # fallback לפי PRIORITY_ORDER אם המודל המתאים חסום
+    chosen = routing.get(category, "llama-3.3-70b-versatile")
+    blocked, _ = is_model_blocked(chosen)
+    if not blocked:
+        return chosen
+
+    # נסה לפי סדר עדיפויות
+    for fallback in PRIORITY_ORDER:
+        fb_blocked, _ = is_model_blocked(fallback)
+        if not fb_blocked and fallback in ALL_MODELS:
+            return fallback
+
+    return chosen  # אין ברירה
 
 
 # --- ליבת ה-AI ---
@@ -483,6 +651,9 @@ def get_ai_response_universal(model_name, messages, user_id: int = None):
                 url = "https://api.cerebras.ai/v1/chat/completions"
             elif provider == "mistral":
                 url = "https://api.mistral.ai/v1/chat/completions"
+            elif provider == "gemini":
+                # OpenAI compatibility endpoint של Google
+                url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
             else:
                 url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
@@ -674,6 +845,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history.append({"role": "assistant", "content": ai_response})
         save_chat(user.id, active_chat, history)
         track_usage(user.id, current_model)
+        context.user_data["last_used_model"] = current_model  # לשימוש ב-/report
 
         if model_name == "auto":
             profile = MODEL_PROFILES.get(current_model, {})
@@ -851,55 +1023,48 @@ async def change_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(user): return
 
     if not context.args:
-        msg = "━━━━━━━━━━━━━━━━━━━\n"
-        msg += "🧠 *מצב AUTO — ברירת מחדל מומלצת*\n"
-        msg += "━━━━━━━━━━━━━━━━━━━\n"
-        msg += "`auto` — הבוט בוחר את המודל המתאים ביותר לכל שאלה\n"
-        msg += "   📌 _מנתב לפי סוג: קוד / מתמטיקה / כתיבה / שיחה / מחקר / מידע עדכני_\n"
-        msg += "   🌐 _מזהה אוטומטית מתי נדרש חיפוש אינטרנט_\n"
-        msg += "   💡 _כל תשובה מציינת איזה מודל ענה_\n\n"
+        blocked_now = get_blocked_display()
 
-        msg += "━━━━━━━━━━━━━━━━━━━\n"
-        msg += "⚡ *מודלי Groq Cloud — בחירה ידנית*\n"
-        msg += "━━━━━━━━━━━━━━━━━━━\n"
-        groq_models = {k: v for k, v in ALL_MODELS.items() if v.get("category") == "groq"}
-        for m, info in groq_models.items():
-            profile = MODEL_PROFILES.get(m, {})
+        def _model_line(m, info):
+            profile  = MODEL_PROFILES.get(m, {})
             best_for = profile.get("best_for", "")
-            emoji = profile.get("emoji", "🔹")
-            msg += f"{emoji} `{m}`\n   └ {info['heb']} ({info['speed']})"
+            emoji    = profile.get("emoji", "🔹")
+            blocked, reason = is_model_blocked(m)
+            if blocked:
+                return f"⛔ `{m}` — {reason}\n"
+            line = f"{emoji} `{m}` — {info['heb']} ({info['speed']})"
             if best_for:
-                msg += f"\n   📌 _{best_for}_"
-            msg += "\n"
+                line += f"\n   📌 _{best_for}_"
+            return line + "\n"
 
-        msg += "\n━━━━━━━━━━━━━━━━━━━\n"
-        msg += "🧬 *מודלי Cerebras — מהירות ייחודית על שבב WSE*\n"
-        msg += "━━━━━━━━━━━━━━━━━━━\n"
-        cerebras_models = {k: v for k, v in ALL_MODELS.items() if v.get("category") == "cerebras"}
-        for m, info in cerebras_models.items():
-            profile = MODEL_PROFILES.get(m, {})
-            best_for = profile.get("best_for", "")
-            emoji = profile.get("emoji", "🔹")
-            msg += f"{emoji} `{m}`\n   └ {info['heb']} ({info['speed']})"
-            if best_for:
-                msg += f"\n   📌 _{best_for}_"
-            msg += "\n"
+        def _section(header: str, category: str) -> str:
+            lines = f"━━━━━━━━━━━━━━━━━━━\n{header}\n━━━━━━━━━━━━━━━━━━━\n"
+            for m, info in {k: v for k, v in ALL_MODELS.items() if v.get("category") == category}.items():
+                lines += _model_line(m, info)
+            return lines
 
-        msg += "\n━━━━━━━━━━━━━━━━━━━\n"
-        msg += "🌊 *מודלי Mistral — אירופאי, רב-לשוני, open-weight*\n"
-        msg += "━━━━━━━━━━━━━━━━━━━\n"
-        mistral_models = {k: v for k, v in ALL_MODELS.items() if v.get("category") == "mistral"}
-        for m, info in mistral_models.items():
-            profile = MODEL_PROFILES.get(m, {})
-            best_for = profile.get("best_for", "")
-            emoji = profile.get("emoji", "🔹")
-            msg += f"{emoji} `{m}`\n   └ {info['heb']} ({info['speed']})"
-            if best_for:
-                msg += f"\n   📌 _{best_for}_"
-            msg += "\n"
+        # הודעה 1 — AUTO + Groq
+        msg1 = "━━━━━━━━━━━━━━━━━━━\n"
+        msg1 += "🧠 *מצב AUTO — ברירת מחדל מומלצת*\n"
+        msg1 += "━━━━━━━━━━━━━━━━━━━\n"
+        msg1 += "`auto` — הבוט בוחר את המודל המתאים לכל שאלה\n"
+        msg1 += "   📌 _קוד / מתמטיקה / כתיבה / שיחה / מחקר / אינטרנט_\n"
+        if blocked_now:
+            msg1 += "   ⛔ _מודלים חסומים לא ייבחרו אוטומטית_\n"
+        msg1 += "\n"
+        msg1 += _section("⚡ *Groq Cloud*", "groq")
+        await update.message.reply_text(msg1, parse_mode="Markdown")
 
-        msg += "\n➡️ *שינוי מודל:* `/model <שם>`"
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        # הודעה 2 — Cerebras + Gemini
+        msg2 = _section("🧬 *Cerebras — ~1000-3000 t/s על שבב WSE*", "cerebras")
+        msg2 += "\n"
+        msg2 += _section("🔵 *Google Gemini — 1M context, חינמי, multimodal*", "gemini")
+        await update.message.reply_text(msg2, parse_mode="Markdown")
+
+        # הודעה 3 — Mistral + footer
+        msg3 = _section("🌊 *Mistral — אירופאי, רב-לשוני, open-weight*", "mistral")
+        msg3 += "\n➡️ *שינוי:* `/model <שם>`  |  📢 *קרדיטים נגמרו?* `/report`"
+        await update.message.reply_text(msg3, parse_mode="Markdown")
         return
 
     new_model = context.args[0]
@@ -1804,6 +1969,70 @@ async def callback_set_tone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
+#  /report — דיווח על מודל עם קרדיטים שנגמרו
+# ─────────────────────────────────────────────
+
+async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_authorized(user): return
+
+    # מצא את המודל האחרון שנוצל
+    last_model = context.user_data.get("last_used_model")
+
+    if not last_model:
+        await update.message.reply_text(
+            "⚠️ לא נמצא מודל אחרון בסשן הנוכחי.\n"
+            "שלח הודעה קודם ואז `/report`.",
+            parse_mode="Markdown"
+        )
+        return
+
+    if last_model not in ALL_MODELS:
+        await update.message.reply_text(f"⚠️ המודל `{last_model}` לא ניתן לחסימה (מודל מערכת).")
+        return
+
+    info      = ALL_MODELS[last_model]
+    provider  = info.get("provider", "?")
+    cfg       = PROVIDER_BLOCK_CONFIG.get(provider, {"scope": "model", "duration_seconds": 60})
+    block_info = block_model_by_name(last_model)
+
+    duration  = block_info["duration"]
+    scope     = block_info["scope"]
+    heb_name  = info.get("heb", last_model)
+    profile   = MODEL_PROFILES.get(last_model, {})
+    emoji     = profile.get("emoji", "🤖")
+
+    if scope == "provider":
+        # חסום ספק שלם
+        provider_models = [k for k, v in ALL_MODELS.items() if v.get("provider") == provider]
+        models_list = ", ".join([f"`{m}`" for m in provider_models])
+        msg = (
+            f"⛔ *דיווח נרשם — ספק שלם נחסם*\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"{emoji} מודל שדווח: `{last_model}` ({heb_name})\n"
+            f"🏢 ספק: *{provider}*\n"
+            f"📋 היקף: *כל מודלי {provider}* (לימיט ברמת workspace)\n"
+            f"⏱️ משך חסימה: *{duration} שניות*\n"
+            f"🚫 מודלים חסומים: {models_list}\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"_הבוט יעבור למודלים חלופיים אוטומטית._"
+        )
+    else:
+        msg = (
+            f"⛔ *דיווח נרשם — מודל נחסם*\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"{emoji} מודל: `{last_model}` ({heb_name})\n"
+            f"🏢 ספק: *{provider}*\n"
+            f"📋 היקף: *מודל זה בלבד* (לימיט per-model)\n"
+            f"⏱️ משך חסימה: *{duration} שניות*\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"_הבוט יעבור למודלים חלופיים אוטומטית._"
+        )
+
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+# ─────────────────────────────────────────────
 #  /stats
 # ─────────────────────────────────────────────
 
@@ -1874,6 +2103,7 @@ if __name__ == "__main__":
     print("🚀 Bot starting — Auto mode active by default")
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("model",     change_model))
+    app.add_handler(CommandHandler("report",    cmd_report))
     app.add_handler(CommandHandler("newchat",   cmd_newchat))
     app.add_handler(CommandHandler("chat",      cmd_chat))
     app.add_handler(CommandHandler("delchat",   cmd_delchat))
