@@ -21,8 +21,8 @@ from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQu
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 HISTORY_DIR = "history"
-USERS_FILE = "allowed_users.txt"
-ADMIN_USERNAME = "Giamat13"  # מקבל התראות אדמין
+USERS_FILE = "allowed_users.txt"  # fallback אם אין env var
+ADMIN_USERNAME = os.getenv("TELEGRAM_ADMIN_USERS", "Giamat13").split(",")[0].strip()  # ראשון ברשימה = אדמין ראשי
 
 # --- מצבי שיחה (ConversationHandler) ---
 WAITING_NEWCHAT_NAME = 1
@@ -538,12 +538,22 @@ def get_blocked_display() -> dict:
 
 def is_authorized(user):
     if not user: return False
-    if not os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'w', encoding='utf-8') as f: f.write("Giamat13\n")
-        return True
-    with open(USERS_FILE, 'r', encoding='utf-8') as f:
-        allowed = [line.strip() for line in f.readlines() if line.strip()]
-    return (user.username in allowed or str(user.id) in allowed)
+
+    # קרא מ-env vars (מופרד בפסיקים)
+    allowed_env  = os.getenv("TELEGRAM_ALLOWED_USERS", "")
+    admin_env    = os.getenv("TELEGRAM_ADMIN_USERS", "")
+
+    allowed_list = [x.strip() for x in (allowed_env + "," + admin_env).split(",") if x.strip()]
+
+    # fallback לקובץ אם env ריק לגמרי
+    if not allowed_list:
+        if not os.path.exists(USERS_FILE):
+            with open(USERS_FILE, 'w', encoding='utf-8') as f: f.write("Giamat13\n")
+            return True
+        with open(USERS_FILE, 'r', encoding='utf-8') as f:
+            allowed_list = [line.strip() for line in f.readlines() if line.strip()]
+
+    return (user.username in allowed_list or str(user.id) in allowed_list)
 
 def search_tavily(query):
     api_key = os.getenv("TAVILY_API_KEY")
