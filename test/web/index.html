@@ -603,11 +603,11 @@ function promptNewChat() {
       if (!name) return;
       if (chats[name] !== undefined) { showToast("צ'אט כבר קיים", "error"); return; }
       chats[name] = [];
-      closeModal();
+      closeModalDirect();
       switchChat(name);
       showToast("✅ צ'אט נוצר: " + name, "success");
     }},
-    { label: "ביטול", cls: "secondary", action: closeModal }
+    { label: "ביטול", cls: "secondary", action: closeModalDirect }
   ]);
   setTimeout(() => document.getElementById("modal-input")?.focus(), 50);
 }
@@ -619,10 +619,10 @@ function deleteChat(name) {
       delete chats[name];
       if (activeChat === name) switchChat(Object.keys(chats)[0]);
       else renderSidebar();
-      closeModal();
+      closeModalDirect();
       showToast("🗑 נמחק: " + name);
     }},
-    { label: "ביטול", cls: "secondary", action: closeModal }
+    { label: "ביטול", cls: "secondary", action: closeModalDirect }
   ]);
 }
 
@@ -634,11 +634,11 @@ function promptAddMemory() {
       if (!fact) return;
       if (memories.includes(fact)) { showToast("כבר שמור", "error"); return; }
       memories.push(fact);
-      closeModal();
+      closeModalDirect();
       renderSidebar();
       showToast("🧠 נשמר בזיכרון", "success");
     }},
-    { label: "ביטול", cls: "secondary", action: closeModal }
+    { label: "ביטול", cls: "secondary", action: closeModalDirect }
   ]);
   setTimeout(() => document.getElementById("modal-input")?.focus(), 50);
 }
@@ -903,10 +903,10 @@ function doExport() {
     </select>`, [
     { label: "ייצא", cls: "primary", action: () => {
       const name = document.getElementById("modal-input").value;
-      closeModal();
+      closeModalDirect();
       exportChat(name);
     }},
-    { label: "ביטול", cls: "secondary", action: closeModal }
+    { label: "ביטול", cls: "secondary", action: closeModalDirect }
   ]);
 }
 
@@ -1025,6 +1025,9 @@ function openModal(title, bodyHtml, buttons) {
 
 function closeModal(e) {
   if (e && e.target !== document.getElementById("modal-bg")) return;
+  document.getElementById("modal-bg").classList.remove("open");
+}
+function closeModalDirect() {
   document.getElementById("modal-bg").classList.remove("open");
 }
 
