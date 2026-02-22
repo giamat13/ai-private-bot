@@ -346,7 +346,11 @@ async function doLogin() {
       input.focus();
     }
   } catch (e) {
-    errMsg.textContent = "שגיאת חיבור לשרת. ודא שה-backend פועל.";
+    if (e instanceof TypeError && e.message.includes("fetch")) {
+      errMsg.textContent = "❌ חסימת CORS או שרת לא זמין — בדוק ב-Render שה-ALLOWED_ORIGIN מוגדר נכון.";
+    } else {
+      errMsg.textContent = "❌ שגיאת חיבור לשרת. ודא שה-backend פועל.";
+    }
   }
 }
 

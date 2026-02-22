@@ -27,7 +27,17 @@ app = Flask(__name__)
 
 # ─── CORS: only allow your GitHub Pages domain ──────────────────────────────
 ALLOWED_ORIGIN = os.getenv("ALLOWED_ORIGIN", "*")   # set this in production!
-CORS(app, origins=[ALLOWED_ORIGIN], supports_credentials=True)
+CORS(app, origins=[ALLOWED_ORIGIN], allow_headers=["Content-Type", "X-Site-Password"], methods=["GET", "POST", "OPTIONS"], supports_credentials=False)
+
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        from flask import Response
+        res = Response()
+        res.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
+        res.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Site-Password"
+        res.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        return res, 204
 
 # ─── Password check ──────────────────────────────────────────────────────────
 SITE_PASSWORD = os.getenv("SITE_PASSWORD", "")
