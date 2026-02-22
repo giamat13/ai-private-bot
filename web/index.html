@@ -491,6 +491,7 @@ let currentTone = "רגיל";
 let stats = { total_messages: 0, models: {}, first_use: null, last_use: null };
 let undoStack = [];
 let redoStack = [];
+let currentAbortController = null;
 
 const TONES = {
   "רגיל":    { desc: "ברירת מחדל — מאוזן",          prompt: "" },
@@ -505,28 +506,49 @@ const TONES = {
 async function doLogin() {
   const input = document.getElementById("pw-input");
   const errMsg = document.getElementById("err-msg");
+  const btn = document.querySelector(".auth-card button");
   const pw = input.value.trim();
   if (!pw) { errMsg.textContent = "הכנס סיסמה"; return; }
   errMsg.textContent = "";
   input.classList.remove("error");
+
+  // Loading state
+  btn.disabled = true;
+  btn.textContent = "מתחבר…";
+  errMsg.style.color = "var(--muted)";
+  errMsg.textContent = "מתחבר לשרת…";
+
+  // אם לוקח יותר מ-4 שניות — השרת בוודאי ישן, הסבר למשתמש
+  const wakeTimer = setTimeout(() => {
+    errMsg.textContent = "⏳ השרת מתעורר, זה עשוי לקחת עד דקה…";
+  }, 4000);
+
   try {
     const res = await fetch(`${API_BASE}/api/verify`, {
       method: "POST",
       headers: { "X-Site-Password": pw, "Content-Type": "application/json" }
     });
+    clearTimeout(wakeTimer);
     if (res.ok) {
       sitePassword = pw;
       input.value = "";
+      errMsg.textContent = "";
       document.getElementById("auth-overlay").classList.add("hidden");
       loadModels();
       renderSidebar();
     } else {
       input.classList.add("error");
+      errMsg.style.color = "var(--danger)";
       errMsg.textContent = "סיסמה שגויה. נסה שוב.";
       input.focus();
     }
   } catch(e) {
+    clearTimeout(wakeTimer);
+    errMsg.style.color = "var(--danger)";
     errMsg.textContent = "❌ שגיאת חיבור לשרת.";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "כניסה";
   }
 }
 
@@ -588,6 +610,16 @@ function switchChat(name) {
   if (!chats[name]) chats[name] = [];
   // save current before switching
   chats[activeChat] = [...chatHistory];
+
+  // אם יש בקשה פעילה — בטל אותה
+  if (currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
+  }
+  isWaiting = false;
+  document.getElementById("send-btn").disabled = false;
+  removeTypingIndicator();
+
   activeChat = name;
   chatHistory = [...chats[name]];
   undoStack = []; redoStack = [];
@@ -603,11 +635,11 @@ function promptNewChat() {
       if (!name) return;
       if (chats[name] !== undefined) { showToast("צ'אט כבר קיים", "error"); return; }
       chats[name] = [];
-      closeModalDirect();
+      closeModal();
       switchChat(name);
       showToast("✅ צ'אט נוצר: " + name, "success");
     }},
-    { label: "ביטול", cls: "secondary", action: closeModalDirect }
+    { label: "ביטול", cls: "secondary", action: closeModal }
   ]);
   setTimeout(() => document.getElementById("modal-input")?.focus(), 50);
 }
@@ -619,10 +651,10 @@ function deleteChat(name) {
       delete chats[name];
       if (activeChat === name) switchChat(Object.keys(chats)[0]);
       else renderSidebar();
-      closeModalDirect();
+      closeModal();
       showToast("🗑 נמחק: " + name);
     }},
-    { label: "ביטול", cls: "secondary", action: closeModalDirect }
+    { label: "ביטול", cls: "secondary", action: closeModal }
   ]);
 }
 
@@ -634,11 +666,11 @@ function promptAddMemory() {
       if (!fact) return;
       if (memories.includes(fact)) { showToast("כבר שמור", "error"); return; }
       memories.push(fact);
-      closeModalDirect();
+      closeModal();
       renderSidebar();
       showToast("🧠 נשמר בזיכרון", "success");
     }},
-    { label: "ביטול", cls: "secondary", action: closeModalDirect }
+    { label: "ביטול", cls: "secondary", action: closeModal }
   ]);
   setTimeout(() => document.getElementById("modal-input")?.focus(), 50);
 }
@@ -903,10 +935,10 @@ function doExport() {
     </select>`, [
     { label: "ייצא", cls: "primary", action: () => {
       const name = document.getElementById("modal-input").value;
-      closeModalDirect();
+      closeModal();
       exportChat(name);
     }},
-    { label: "ביטול", cls: "secondary", action: closeModalDirect }
+    { label: "ביטול", cls: "secondary", action: closeModal }
   ]);
 }
 
@@ -957,6 +989,13 @@ async function sendToAPI(text, historyBeforeThis) {
   document.getElementById("send-btn").disabled = true;
   addTypingIndicator();
 
+  // שמור את שם הצ'אט הפעיל כרגע
+  const chatAtSend = activeChat;
+
+  // צור controller לביטול
+  currentAbortController = new AbortController();
+  const signal = currentAbortController.signal;
+
   // Build messages with tone system hint if needed
   const tone = getTonePrompt();
   let messagesPayload = [...chatHistory];
@@ -972,7 +1011,8 @@ async function sendToAPI(text, historyBeforeThis) {
     const res = await fetch(`${API_BASE}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
-      body: JSON.stringify({ messages: messagesPayload, model: selectedModel })
+      body: JSON.stringify({ messages: messagesPayload, model: selectedModel }),
+      signal
     });
 
     removeTypingIndicator();
@@ -984,23 +1024,42 @@ async function sendToAPI(text, historyBeforeThis) {
     }
 
     const data = await res.json();
+
+    // שמור תמיד בצ'אט הנכון (גם אם המשתמש החליף)
     if (data.error) {
-      addMessage("bot", `❌ ${data.error}`);
+      chats[chatAtSend] = chats[chatAtSend] || [];
+      if (chatAtSend === activeChat) addMessage("bot", `❌ ${data.error}`);
     } else {
       const modelUsed = data.model_used || selectedModel;
       const meta = data.model_used && (data.model_used !== selectedModel || selectedModel === "auto")
         ? `🤖 ${data.model_heb} (${data.model_used})`
         : null;
-      addMessage("bot", data.reply, meta);
-      chatHistory.push({ role: "assistant", content: data.reply });
-      chats[activeChat] = [...chatHistory];
-      if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+
+      // הוסף לhistory של הצ'אט שממנו נשלחה הבקשה
+      const targetHistory = chats[chatAtSend] || [];
+      targetHistory.push({ role: "assistant", content: data.reply });
+      chats[chatAtSend] = targetHistory;
+
+      if (chatAtSend === activeChat) {
+        // המשתמש עדיין באותו צ'אט — הצג רגיל
+        chatHistory = [...targetHistory];
+        addMessage("bot", data.reply, meta);
+      } else {
+        // המשתמש עבר לצ'אט אחר — הודעה שקטה
+        showToast(`💬 תגובה התקבלה ב‑${chatAtSend}`, "success");
+      }
+
+      if (chatAtSend === activeChat && chatHistory.length > 20)
+        chatHistory = chatHistory.slice(-20);
+
       trackUsage(modelUsed);
     }
   } catch(e) {
+    if (e.name === "AbortError") return; // בוטל בכוונה — לא להציג שגיאה
     removeTypingIndicator();
-    addMessage("bot", "❌ שגיאת חיבור לשרת.");
+    if (chatAtSend === activeChat) addMessage("bot", "❌ שגיאת חיבור לשרת.");
   } finally {
+    currentAbortController = null;
     isWaiting = false;
     document.getElementById("send-btn").disabled = false;
     document.getElementById("input").focus();
@@ -1025,9 +1084,6 @@ function openModal(title, bodyHtml, buttons) {
 
 function closeModal(e) {
   if (e && e.target !== document.getElementById("modal-bg")) return;
-  document.getElementById("modal-bg").classList.remove("open");
-}
-function closeModalDirect() {
   document.getElementById("modal-bg").classList.remove("open");
 }
 
