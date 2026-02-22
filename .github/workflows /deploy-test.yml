@@ -1,8 +1,8 @@
-name: Deploy test-test
+name: Deploy test
 on:
   push:
     branches:
-      - test-test
+      - test
 
 permissions:
   contents: write
@@ -18,5 +18,5 @@ jobs:
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           folder: .
-          target-folder: test-test
-          branch: main # זה ידחוף את התיקייה לתוך ה-test-test שלך
+          target-folder: test
+          branch: main # זה ידחוף את התיקייה לתוך ה-test שלך
