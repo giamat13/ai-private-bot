@@ -102,6 +102,14 @@
     background: rgba(91,141,238,0.12); color: var(--accent);
     border-radius: 999px; border: 1px solid rgba(91,141,238,0.25);
   }
+  #logout-btn {
+    background: none; border: 1px solid var(--border);
+    border-radius: 8px; color: var(--muted);
+    font-size: 1rem; width: 32px; height: 32px;
+    cursor: pointer; transition: all 0.15s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #logout-btn:hover { border-color: var(--danger); color: var(--danger); }
 
   /* ── Model selector ─────────────────────────────────────── */
   .model-bar {
@@ -277,6 +285,7 @@
     <span class="logo">🤖</span>
     <h1>AI Chat</h1>
     <span class="header-badge" id="model-badge">auto</span>
+    <button id="logout-btn" onclick="doLogout()" title="התנתק">🔓</button>
   </header>
 
   <div class="model-bar">
@@ -315,10 +324,43 @@
 const API_BASE = "https://ai-telegram-bot-ikb0.onrender.com";
 
 // ══ State ═══════════════════════════════════════════════════════
-let sitePassword = "";   // set after login; sent as a header — NEVER stored in DOM or localStorage
+let sitePassword = "";
 let selectedModel = "auto";
-let chatHistory = [];    // [{role, content}, ...]
+let chatHistory = [];
 let isWaiting = false;
+
+// ══ Password persistence (localStorage — only the password, not session state) ══
+const PW_KEY = "ai_chat_pw";
+
+function loadSavedPassword() {
+  try { return localStorage.getItem(PW_KEY) || ""; } catch { return ""; }
+}
+function savePassword(pw) {
+  try { localStorage.setItem(PW_KEY, pw); } catch {}
+}
+function clearSavedPassword() {
+  try { localStorage.removeItem(PW_KEY); } catch {}
+}
+
+// On page load — pre-fill password field if saved
+window.addEventListener("DOMContentLoaded", () => {
+  const saved = loadSavedPassword();
+  if (saved) {
+    document.getElementById("pw-input").value = saved;
+    document.getElementById("err-msg").textContent = "סיסמה שמורה — לחץ כניסה";
+    document.getElementById("err-msg").style.color = "var(--accent)";
+  }
+});
+
+function doLogout() {
+  sitePassword = "";
+  clearSavedPassword();
+  chatHistory = [];
+  document.getElementById("auth-overlay").classList.remove("hidden");
+  document.getElementById("pw-input").value = "";
+  document.getElementById("err-msg").textContent = "";
+  document.getElementById("err-msg").style.color = "var(--danger)";
+}
 
 // ══ Auth ════════════════════════════════════════════════════════
 async function doLogin() {
@@ -336,7 +378,8 @@ async function doLogin() {
       headers: { "X-Site-Password": pw, "Content-Type": "application/json" }
     });
     if (res.ok) {
-      sitePassword = pw;   // keep only in memory
+      sitePassword = pw;
+      savePassword(pw);
       input.value = "";
       document.getElementById("auth-overlay").classList.add("hidden");
       loadModels();
@@ -346,11 +389,7 @@ async function doLogin() {
       input.focus();
     }
   } catch (e) {
-    if (e instanceof TypeError && e.message.includes("fetch")) {
-      errMsg.textContent = "❌ חסימת CORS או שרת לא זמין — בדוק ב-Render שה-ALLOWED_ORIGIN מוגדר נכון.";
-    } else {
-      errMsg.textContent = "❌ שגיאת חיבור לשרת. ודא שה-backend פועל.";
-    }
+    errMsg.textContent = "שגיאת חיבור לשרת. ודא שה-backend פועל.";
   }
 }
 
