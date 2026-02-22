@@ -1,62 +1,43 @@
-"""
-api.py — Flask backend for the AI Chat web interface.
-Deploy this on Render / Railway / Fly.io (NOT GitHub Pages).
-
-Required environment variables (set in your hosting dashboard, NEVER in code):
-  SITE_PASSWORD    — the password users enter on the website
-  GROQ_API_KEY     — Groq API key(s), comma-separated
-  CEREBRAS_API_KEY — Cerebras API key(s)
-  GEMINI_API_KEY   — Google Gemini API key(s)
-  MISTRAL_API_KEY  — Mistral API key(s)
-  TAVILY_API_KEY   — (optional) Tavily search key
-  ALLOWED_ORIGIN   — your GitHub Pages URL, e.g. https://yourusername.github.io
-"""
-
 import os
 import secrets
-import json
 import datetime
 import requests
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
+ALLOWED_ORIGIN = os.getenv("ALLOWED_ORIGIN", "*")
 
-# ─── CORS: only allow your GitHub Pages domain ──────────────────────────────
-ALLOWED_ORIGIN = os.getenv("ALLOWED_ORIGIN", "*")   # set this in production!
-CORS(app, origins=[ALLOWED_ORIGIN], allow_headers=["Content-Type", "X-Site-Password"], methods=["GET", "POST", "OPTIONS"], supports_credentials=False)
+# ─── CORS הכי פשוט שעובד ────────────────────────────────────
+CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGIN}},
+     allow_headers=["Content-Type", "X-Site-Password"],
+     methods=["GET", "POST", "OPTIONS"])
 
-@app.before_request
-def handle_preflight():
-    if request.method == "OPTIONS":
-        from flask import Response
-        res = Response()
-        res.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
-        res.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Site-Password"
-        res.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        return res, 204
+# ─── Preflight handler — חייב להחזיר 200 ────────────────────
+@app.after_request
+def after_request(response):
+    origin = request.headers.get("Origin", "")
+    if origin == ALLOWED_ORIGIN or ALLOWED_ORIGIN == "*":
+        response.headers["Access-Control-Allow-Origin"]  = ALLOWED_ORIGIN
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Site-Password"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
 
-# ─── Password check ──────────────────────────────────────────────────────────
+# ─── Password ────────────────────────────────────────────────
 SITE_PASSWORD = os.getenv("SITE_PASSWORD", "")
 
 def check_password(req) -> bool:
-    """
-    The password is sent by the browser in the X-Site-Password header.
-    We compare with secrets.compare_digest to prevent timing-attack leaks.
-    The actual password is ONLY in the server's env var — never in any code or HTML.
-    """
     if not SITE_PASSWORD:
-        return False  # if env var not set, deny everything
+        return False
     incoming = req.headers.get("X-Site-Password", "")
     return secrets.compare_digest(incoming, SITE_PASSWORD)
 
-# ─── Model definitions (same as main.py) ────────────────────────────────────
+# ─── Models ──────────────────────────────────────────────────
 ALL_MODELS = {
     "auto": {"provider": "system", "heb": "בחירה אוטומטית", "category": "auto"},
-    # Groq
     "llama-3.1-8b-instant":    {"provider": "groq", "api_id": "llama-3.1-8b-instant",                         "heb": "Llama 3.1 8B",      "category": "groq"},
     "llama-3.3-70b-versatile": {"provider": "groq", "api_id": "llama-3.3-70b-versatile",                      "heb": "Llama 3.3 70B",     "category": "groq"},
     "llama-4-maverick":        {"provider": "groq", "api_id": "meta-llama/llama-4-maverick-17b-128e-instruct", "heb": "Llama 4 Maverick",  "category": "groq"},
@@ -67,14 +48,11 @@ ALL_MODELS = {
     "qwen3-32b":               {"provider": "groq", "api_id": "qwen/qwen3-32b",                               "heb": "Qwen 3 32B",        "category": "groq"},
     "groq-compound":           {"provider": "groq", "api_id": "groq/compound",                                "heb": "Groq Compound",     "category": "groq"},
     "groq-compound-mini":      {"provider": "groq", "api_id": "groq/compound-mini",                           "heb": "Groq Compound Mini","category": "groq"},
-    # Cerebras
     "cerebras-llama3.1-8b":    {"provider": "cerebras", "api_id": "llama3.1-8b",       "heb": "Llama 3.1 8B (Cerebras)", "category": "cerebras"},
     "cerebras-gpt-oss-120b":   {"provider": "cerebras", "api_id": "gpt-oss-120b",      "heb": "GPT OSS 120B (Cerebras)", "category": "cerebras"},
-    # Gemini
     "gemini-2.5-flash-lite":   {"provider": "gemini", "api_id": "gemini-2.5-flash-lite",     "heb": "Gemini 2.5 Flash-Lite", "category": "gemini"},
     "gemini-2.5-flash":        {"provider": "gemini", "api_id": "gemini-2.5-flash",          "heb": "Gemini 2.5 Flash",      "category": "gemini"},
     "gemini-2.5-pro":          {"provider": "gemini", "api_id": "gemini-2.5-pro",            "heb": "Gemini 2.5 Pro",        "category": "gemini"},
-    # Mistral
     "mistral-large":           {"provider": "mistral", "api_id": "mistral-large-latest",  "heb": "Mistral Large",  "category": "mistral"},
     "mistral-medium":          {"provider": "mistral", "api_id": "mistral-medium-latest", "heb": "Mistral Medium", "category": "mistral"},
     "mistral-small":           {"provider": "mistral", "api_id": "mistral-small-latest",  "heb": "Mistral Small",  "category": "mistral"},
@@ -91,17 +69,13 @@ PRIORITY_ORDER = [
     "gemini-2.5-flash", "gemini-2.5-flash-lite", "mistral-large", "mistral-small",
 ]
 
-# ─── In-memory blocked models (resets on server restart) ────────────────────
-_blocked: dict = {}  # model_or_provider → unblock_timestamp
+_blocked: dict = {}
 
 def is_blocked(model_name: str) -> bool:
     now = datetime.datetime.now().timestamp()
-    # clean expired
     expired = [k for k, v in _blocked.items() if v != -1 and v <= now]
-    for k in expired:
-        del _blocked[k]
-    if model_name in _blocked:
-        return True
+    for k in expired: del _blocked[k]
+    if model_name in _blocked: return True
     provider = ALL_MODELS.get(model_name, {}).get("provider", "")
     return f"_provider_{provider}" in _blocked
 
@@ -111,18 +85,13 @@ def block_model(model_name: str, seconds: int = 60):
     key = f"_provider_{provider}" if provider_scope else model_name
     _blocked[key] = datetime.datetime.now().timestamp() + seconds
 
-# ─── AI call ────────────────────────────────────────────────────────────────
 def get_ai_response(model_name: str, messages: list) -> str:
     info = ALL_MODELS.get(model_name)
-    if not info:
-        return "❌ מודל לא ידוע."
-
+    if not info: return "❌ מודל לא ידוע."
     provider = info["provider"]
     raw_keys = os.getenv(f"{provider.upper()}_API_KEY", "")
     api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
-    if not api_keys:
-        return f"❌ חסר API KEY עבור {provider}"
-
+    if not api_keys: return f"❌ חסר API KEY עבור {provider}"
     api_id = info.get("api_id", model_name)
     url_map = {
         "groq":     "https://api.groq.com/openai/v1/chat/completions",
@@ -132,35 +101,22 @@ def get_ai_response(model_name: str, messages: list) -> str:
     }
     url = url_map.get(provider, url_map["groq"])
     timeout = 180 if model_name in HEAVY_MODELS else 90
-
     for key in api_keys:
         try:
-            res = requests.post(
-                url,
+            res = requests.post(url,
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={"model": api_id, "messages": messages},
-                timeout=timeout
-            )
-            if res.status_code == 200:
-                return res.json()["choices"][0]["message"]["content"]
-            elif res.status_code == 429:
-                block_model(model_name)
-                continue
-            elif res.status_code == 404:
-                return f"❌ המודל {model_name} לא נמצא (404)."
+                json={"model": api_id, "messages": messages}, timeout=timeout)
+            if res.status_code == 200: return res.json()["choices"][0]["message"]["content"]
+            elif res.status_code == 429: block_model(model_name); continue
+            elif res.status_code == 404: return f"❌ המודל {model_name} לא נמצא (404)."
             else:
                 err = res.json().get("error", {}).get("message", "שגיאה לא ידועה")
                 return f"❌ שגיאה {res.status_code}: {err}"
-        except requests.Timeout:
-            return "❌ timeout — המודל עמוס, נסה שוב."
-        except Exception as e:
-            return f"❌ שגיאת רשת: {e}"
-
+        except requests.Timeout: return "❌ timeout — המודל עמוס, נסה שוב."
+        except Exception as e: return f"❌ שגיאת רשת: {e}"
     return "❌ כל המפתחות הגיעו ל-rate limit. נסה בעוד דקה."
 
-
 def auto_select_model(user_msg: str) -> str:
-    """Select best available model based on keywords."""
     text = user_msg.lower()
     kw_map = {
         "groq-compound-mini": ["מחיר", "היום", "עכשיו", "חדשות", "מזג אוויר", "weather", "news", "today", "price"],
@@ -170,63 +126,51 @@ def auto_select_model(user_msg: str) -> str:
     for model_key, keywords in kw_map.items():
         if not is_blocked(model_key) and any(kw in text for kw in keywords):
             return model_key
-
     for fallback in PRIORITY_ORDER:
         if not is_blocked(fallback) and fallback in ALL_MODELS:
             return fallback
     return "llama-3.3-70b-versatile"
 
-
-# ─── Routes ─────────────────────────────────────────────────────────────────
-
-@app.route("/api/verify", methods=["POST"])
+# ─── Routes ──────────────────────────────────────────────────
+@app.route("/api/verify", methods=["POST", "OPTIONS"])
 def verify():
-    """Check if the password is correct — returns 200 or 401."""
+    if request.method == "OPTIONS":
+        return jsonify({"ok": True}), 200
     if check_password(request):
         return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "סיסמה שגויה"}), 401
 
-
-@app.route("/api/chat", methods=["POST"])
+@app.route("/api/chat", methods=["POST", "OPTIONS"])
 def chat():
-    """Main chat endpoint."""
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
     if not check_password(request):
         return jsonify({"error": "לא מורשה — סיסמה שגויה"}), 401
-
     body = request.get_json(silent=True) or {}
     messages = body.get("messages", [])
     model_name = body.get("model", "auto")
-
     if not messages:
         return jsonify({"error": "חסרות הודעות"}), 400
-
-    # Resolve "auto"
     if model_name == "auto":
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         model_name = auto_select_model(last_user)
-
     system_msg = {"role": "system", "content": "You are a helpful assistant. Respond in Hebrew. Be accurate and concise."}
-    full_messages = [system_msg] + messages
-
-    reply = get_ai_response(model_name, full_messages)
+    reply = get_ai_response(model_name, [system_msg] + messages)
     return jsonify({"reply": reply, "model_used": model_name, "model_heb": ALL_MODELS.get(model_name, {}).get("heb", model_name)})
 
-
-@app.route("/api/models", methods=["GET"])
+@app.route("/api/models", methods=["GET", "OPTIONS"])
 def models():
-    """Returns list of models (no auth needed — no secrets here)."""
+    if request.method == "OPTIONS":
+        return jsonify([]), 200
     result = []
     for key, info in ALL_MODELS.items():
-        if info.get("category") == "auto":
-            continue
+        if info.get("category") == "auto": continue
         result.append({"id": key, "heb": info.get("heb", key), "provider": info.get("provider", ""), "blocked": is_blocked(key)})
     return jsonify(result)
-
 
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
-
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
