@@ -518,6 +518,14 @@ function autoResize(el) {
   el.style.height = "auto";
   el.style.height = Math.min(el.scrollHeight, 160) + "px";
 }
+
+// ══ Model bar – horizontal scroll with mouse wheel ═══════════════
+document.querySelector(".model-bar").addEventListener("wheel", function(e) {
+  if (e.deltaY !== 0) {
+    e.preventDefault();
+    this.scrollLeft += e.deltaY;
+  }
+}, { passive: false });
 </script>
 </body>
 </html>
