@@ -115,6 +115,67 @@
   .model-btn.active { border-color: var(--accent); background: rgba(91,141,238,0.12); color: var(--accent); font-weight: 500; }
   .model-btn.blocked { opacity: 0.35; cursor: not-allowed; }
 
+  /* ── Model Tooltip ──────────────────────────────────────── */
+  .model-btn { position: relative; }
+  .model-tooltip {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 50%; transform: translateX(50%);
+    background: #1a1c26;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.65rem 0.85rem;
+    width: 240px;
+    z-index: 50;
+    text-align: right;
+    direction: rtl;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    pointer-events: none;
+  }
+  .model-tooltip::before {
+    content: "";
+    position: absolute;
+    top: -6px; right: 50%; transform: translateX(50%);
+    border: 6px solid transparent;
+    border-top: none;
+    border-bottom-color: var(--border);
+  }
+  .model-tooltip-name {
+    font-size: 0.82rem; font-weight: 600;
+    color: var(--accent); margin-bottom: 0.3rem;
+    display: flex; align-items: center; gap: 0.35rem;
+  }
+  .model-tooltip-best {
+    font-size: 0.76rem; color: var(--text);
+    line-height: 1.5; margin-bottom: 0.4rem;
+  }
+  .model-tooltip-best-label {
+    font-size: 0.68rem; color: var(--accent2);
+    font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; margin-bottom: 0.15rem;
+  }
+  .model-tooltip-desc {
+    font-size: 0.72rem; color: var(--muted);
+    line-height: 1.45; border-top: 1px solid var(--border);
+    padding-top: 0.35rem; margin-top: 0.1rem;
+  }
+  .model-tooltip-blocked {
+    font-size: 0.75rem; color: var(--danger);
+    margin-top: 0.3rem;
+  }
+  .model-btn:hover .model-tooltip,
+  .model-btn:focus .model-tooltip { display: block; }
+  /* keep tooltip visible when hovering it */
+  .model-bar { overflow: visible !important; }
+  /* clip only scroll, not tooltips */
+  .model-bar-scroll {
+    display: flex; align-items: center; gap: 0.5rem;
+    overflow-x: auto; scrollbar-width: none;
+    padding: 0.5rem 1rem;
+  }
+  .model-bar-scroll::-webkit-scrollbar { display: none; }
+
   /* ── Toolbar (below model bar) ──────────────────────────── */
   .toolbar {
     display: flex; align-items: center; gap: 0.4rem;
@@ -396,9 +457,18 @@
     <button class="header-icon-btn danger" onclick="doLogout()" title="התנתק">🔓</button>
   </header>
 
-  <div class="model-bar">
-    <span class="model-label">מודל:</span>
-    <button class="model-btn active" data-model="auto" onclick="selectModel('auto')">⚡ אוטומטי</button>
+  <div class="model-bar" style="padding:0;overflow:visible;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;">
+    <div class="model-bar-scroll" id="model-bar-inner">
+      <span class="model-label">מודל:</span>
+      <button class="model-btn active" data-model="auto" onclick="selectModel('auto')">🧠 אוטומטי
+        <div class="model-tooltip">
+          <div class="model-tooltip-name">🧠 בחירה אוטומטית חכמה</div>
+          <div class="model-tooltip-best-label">📌 מתאים ל</div>
+          <div class="model-tooltip-best">קוד · מתמטיקה · כתיבה · שיחה · מחקר · אינטרנט · מסמכים ארוכים · רב-לשוניות</div>
+          <div class="model-tooltip-desc">מנתח את ההודעה שלך בזמן אמת, בוחר את המודל האידיאלי לכל שאלה — keyword matching + AI classification + fallback אוטומטי אם מודל חסום.</div>
+        </div>
+      </button>
+    </div>
   </div>
 
   <div class="toolbar">
@@ -661,25 +731,90 @@ async function loadModels() {
   try {
     const res    = await fetch(`${API_BASE}/api/models`);
     const models = await res.json();
-    const bar    = document.querySelector(".model-bar");
+    const bar    = document.getElementById("model-bar-inner");
     const providers = [...new Set(models.map(m => m.provider))];
     providers.forEach(prov => {
       const group = models.filter(m => m.provider === prov);
       const sep = document.createElement("span");
-      sep.style.cssText = "color:var(--border);font-size:0.9rem;padding:0 0.2rem;";
+      sep.style.cssText = "color:var(--border);font-size:0.9rem;padding:0 0.2rem;flex-shrink:0;";
       sep.textContent = "|";
       bar.appendChild(sep);
       group.forEach(m => {
-        const btn = document.createElement("button");
-        btn.className = "model-btn" + (m.blocked ? " blocked" : "");
-        btn.dataset.model = m.id;
-        btn.textContent = m.heb;
-        btn.title = m.id;
-        if (!m.blocked) btn.onclick = () => selectModel(m.id);
+        const btn   = buildModelBtn(m.id, m.heb, m.blocked, m.blocked ? m.blocked_reason : "");
         bar.appendChild(btn);
       });
     });
-  } catch {}
+  } catch {
+    // אם ה-API לא מחזיר מודלים — בנה מ-ALL_MODELS המקומי
+    buildModelsFromLocal();
+  }
+}
+
+/** בונה את בר המודלים מהנתונים המקומיים (ללא קריאה לשרת) */
+function buildModelsFromLocal() {
+  const bar = document.getElementById("model-bar-inner");
+  const providerOrder = ["groq","cerebras","gemini","mistral"];
+  providerOrder.forEach(prov => {
+    const group = Object.entries(ALL_MODELS).filter(([,v]) => v.provider === prov);
+    if (!group.length) return;
+    const sep = document.createElement("span");
+    sep.style.cssText = "color:var(--border);font-size:0.9rem;padding:0 0.2rem;flex-shrink:0;";
+    sep.textContent = "|";
+    bar.appendChild(sep);
+    group.forEach(([id, info]) => {
+      const { blocked } = isModelBlocked(id);
+      bar.appendChild(buildModelBtn(id, info.heb, blocked, blocked ? isModelBlocked(id).reason : ""));
+    });
+  });
+}
+
+/** בונה כפתור מודל עם tooltip מלא */
+function buildModelBtn(id, heb, blocked, blockedReason) {
+  const profile = MODEL_PROFILES[id] || {};
+  const emoji   = profile.emoji   || "🔹";
+  const bestFor = profile.best_for || "";
+  const desc    = profile.description || "";
+  const { blocked: isBlocked, reason } = isModelBlocked(id);
+  const actualBlocked = blocked || isBlocked;
+  const actualReason  = blockedReason || reason;
+
+  const btn = document.createElement("button");
+  btn.className    = "model-btn" + (actualBlocked ? " blocked" : "");
+  btn.dataset.model = id;
+  btn.style.cssText = "position:relative;";
+
+  // תוכן הכפתור: emoji + שם
+  const label = document.createElement("span");
+  label.textContent = emoji + " " + heb;
+  btn.appendChild(label);
+
+  // Tooltip
+  const tip = document.createElement("div");
+  tip.className = "model-tooltip";
+
+  const providerName = (ALL_MODELS[id] || {}).provider || "";
+
+  tip.innerHTML =
+    '<div class="model-tooltip-name">' + emoji + " " + heb +
+      '<span style="font-size:0.65rem;color:var(--muted);font-weight:400;margin-right:auto;">' + providerName + '</span>' +
+    '</div>' +
+    (bestFor ?
+      '<div class="model-tooltip-best-label">📌 מצוין ל</div>' +
+      '<div class="model-tooltip-best">' + bestFor + '</div>'
+      : '') +
+    (desc ?
+      '<div class="model-tooltip-desc">' + desc + '</div>'
+      : '') +
+    (actualBlocked ?
+      '<div class="model-tooltip-blocked">⛔ ' + actualReason + '</div>'
+      : '');
+
+  btn.appendChild(tip);
+
+  if (!actualBlocked) {
+    btn.onclick = () => selectModel(id);
+  }
+  return btn;
 }
 
 function selectModel(id) {
