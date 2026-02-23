@@ -1388,7 +1388,9 @@ async def cmd_help_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━━━━━\n"
         f"💬 צ'אט פעיל: *{active}*  |  {len(chats)} צ'אטים\n"
         f"🤖 מודל: {model_display}  |  🎨 סגנון: {tone_name}\n"
-        f"🧠 זיכרונות: {len(memories)}"
+        f"🧠 זיכרונות: {len(memories)}\n"
+        "\n"
+        "🌐 [פתח ממשק האינטרנט](https://giamat13.github.io/ai-private-bot/web/)"
     )
 
     await update.message.reply_text(msg, parse_mode="Markdown")
