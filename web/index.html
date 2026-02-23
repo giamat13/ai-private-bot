@@ -139,7 +139,15 @@
     top: -6px; right: 50%; transform: translateX(50%);
     border: 6px solid transparent;
     border-top: none;
-    border-bottom-color: var(--border);
+    border-bottom-color: #252836;
+  }
+  .model-tooltip::after {
+    content: "";
+    position: absolute;
+    top: -5px; right: 50%; transform: translateX(50%);
+    border: 5px solid transparent;
+    border-top: none;
+    border-bottom-color: #1a1c26;
   }
   .model-tooltip-name {
     font-size: 0.82rem; font-weight: 600;
@@ -428,6 +436,44 @@
     .toolbar { padding: 0.35rem 0.7rem; }
     .modal { padding: 1.25rem; }
   }
+
+  /* ── Favorites modal ──────────────────────────────────────── */
+  .fav-item {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.42rem 0.65rem; border-radius: 8px;
+    border: 1px solid transparent; cursor: default;
+    transition: background 0.12s; font-size: 0.83rem;
+  }
+  .fav-item:hover { background: rgba(255,255,255,0.03); }
+  .fav-item.fav-active { border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.05); }
+  .fav-emoji { font-size: 1rem; flex-shrink: 0; }
+  .fav-name  { flex: 1; font-weight: 500; }
+  .fav-provider { display: none; }
+  .fav-toggle-btn {
+    background: none; border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.18rem 0.55rem;
+    font-size: 0.75rem; color: var(--muted); cursor: pointer;
+    transition: all 0.15s; flex-shrink: 0;
+  }
+  .fav-item.fav-active .fav-toggle-btn {
+    border-color: rgba(251,191,36,0.5); color: #fbbf24;
+  }
+  .fav-toggle-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+  #favorites-all-list { max-height: 320px; overflow-y: auto; margin-bottom: 0.75rem; }
+
+  /* ── Override indicator on model-btn ────────────────────────── */
+  .model-btn.override-active {
+    border-color: #fbbf24 !important;
+    background: rgba(251,191,36,0.1) !important;
+    color: #fbbf24 !important;
+  }
+  .model-btn.override-active::after {
+    content: "1×";
+    font-size: 0.6rem; margin-right: 0.25rem;
+    background: rgba(251,191,36,0.2); border-radius: 4px;
+    padding: 0 3px; vertical-align: middle;
+  }
+
 </style>
 </head>
 <body>
@@ -459,16 +505,11 @@
 
   <div class="model-bar" style="padding:0;overflow:visible;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;">
     <div class="model-bar-scroll" id="model-bar-inner">
-      <span class="model-label">מודל:</span>
-      <button class="model-btn active" data-model="auto" onclick="selectModel('auto')">🧠 אוטומטי
-        <div class="model-tooltip">
-          <div class="model-tooltip-name">🧠 בחירה אוטומטית חכמה</div>
-          <div class="model-tooltip-best-label">📌 מתאים ל</div>
-          <div class="model-tooltip-best">קוד · מתמטיקה · כתיבה · שיחה · מחקר · אינטרנט · מסמכים ארוכים · רב-לשוניות</div>
-          <div class="model-tooltip-desc">מנתח את ההודעה שלך בזמן אמת, בוחר את המודל האידיאלי לכל שאלה — keyword matching + AI classification + fallback אוטומטי אם מודל חסום.</div>
-        </div>
-      </button>
+      <!-- auto + favorites rendered by JS -->
     </div>
+    <button id="fav-manage-btn" onclick="openFavoritesModal()" title="נהל מודלים מועדפים"
+      style="flex-shrink:0;background:none;border:none;color:var(--muted);font-size:1rem;padding:0 0.7rem;cursor:pointer;transition:color 0.15s;"
+      onmouseover="this.style.color='var(--accent2)'" onmouseout="this.style.color='var(--muted)'">⭐</button>
   </div>
 
   <div class="toolbar">
@@ -672,6 +713,7 @@ function clearSavedPassword(){ try { localStorage.removeItem(PW_KEY); }   catch 
 window.addEventListener("DOMContentLoaded", () => {
   loadState();
   ensureDefaultChat();
+  renderModelBar();  // הצג בר מודלים מיד (כולל מועדפים) ללא המתנה ל-API
 
   const saved = loadSavedPassword();
   if (saved) {
@@ -726,89 +768,119 @@ function doLogout() {
   document.getElementById("err-msg").style.color = "var(--danger)";
 }
 
-// ══ Models ══════════════════════════════════════════════════════
-async function loadModels() {
-  try {
-    const res    = await fetch(`${API_BASE}/api/models`);
-    const models = await res.json();
-    const bar    = document.getElementById("model-bar-inner");
-    const providers = [...new Set(models.map(m => m.provider))];
-    providers.forEach(prov => {
-      const group = models.filter(m => m.provider === prov);
-      const sep = document.createElement("span");
-      sep.style.cssText = "color:var(--border);font-size:0.9rem;padding:0 0.2rem;flex-shrink:0;";
-      sep.textContent = "|";
-      bar.appendChild(sep);
-      group.forEach(m => {
-        const btn   = buildModelBtn(m.id, m.heb, m.blocked, m.blocked ? m.blocked_reason : "");
-        bar.appendChild(btn);
-      });
-    });
-  } catch {
-    // אם ה-API לא מחזיר מודלים — בנה מ-ALL_MODELS המקומי
-    buildModelsFromLocal();
-  }
+// ══ Models & Favorites ══════════════════════════════════════════
+
+// מועדפים — נשמרים ב-localStorage
+const FAV_KEY = "ai_fav_models_v1";
+// overrideModel: מודל שנבחר ידנית עבור ההודעה הבאה בלבד (override זמני על auto)
+let overrideModel = null;
+
+function loadFavorites() {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY) || "null") || []; } catch { return []; }
+}
+function saveFavorites(arr) {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(arr)); } catch {}
 }
 
-/** בונה את בר המודלים מהנתונים המקומיים (ללא קריאה לשרת) */
-function buildModelsFromLocal() {
-  const bar = document.getElementById("model-bar-inner");
+/** מרנדר את בר המודלים: auto + מועדפים + שאר */
+function renderModelBar() {
+  const bar  = document.getElementById("model-bar-inner");
+  bar.innerHTML = "";
+  const favs = loadFavorites();
+
+  // ── כפתור AUTO (תמיד ראשון, תמיד ה-default) ──────────────
+  const autoBtn = buildModelBtn("auto", "אוטומטי", false, "");
+  autoBtn.classList.add(selectedModel === "auto" ? "active" : "");
+  bar.appendChild(autoBtn);
+
+  // ── מועדפים ──────────────────────────────────────────────
+  if (favs.length > 0) {
+    const sepFav = makeSep("★");
+    bar.appendChild(sepFav);
+    favs.forEach(id => {
+      if (!ALL_MODELS[id] && id !== "auto") return;
+      const info = ALL_MODELS[id] || {};
+      const { blocked, reason } = isModelBlocked(id);
+      const btn = buildModelBtn(id, info.heb || id, blocked, reason);
+      btn.classList.toggle("active", selectedModel === id);
+      bar.appendChild(btn);
+    });
+  }
+
+  // ── שאר המודלים לפי ספק ──────────────────────────────────
   const providerOrder = ["groq","cerebras","gemini","mistral"];
   providerOrder.forEach(prov => {
-    const group = Object.entries(ALL_MODELS).filter(([,v]) => v.provider === prov);
+    const group = Object.entries(ALL_MODELS).filter(([id, v]) =>
+      v.provider === prov && !favs.includes(id)
+    );
     if (!group.length) return;
-    const sep = document.createElement("span");
-    sep.style.cssText = "color:var(--border);font-size:0.9rem;padding:0 0.2rem;flex-shrink:0;";
-    sep.textContent = "|";
-    bar.appendChild(sep);
+    bar.appendChild(makeSep());
     group.forEach(([id, info]) => {
-      const { blocked } = isModelBlocked(id);
-      bar.appendChild(buildModelBtn(id, info.heb, blocked, blocked ? isModelBlocked(id).reason : ""));
+      const { blocked, reason } = isModelBlocked(id);
+      const btn = buildModelBtn(id, info.heb, blocked, reason);
+      btn.classList.toggle("active", selectedModel === id);
+      bar.appendChild(btn);
     });
   });
 }
 
-/** בונה כפתור מודל עם tooltip מלא */
+function makeSep(label) {
+  const s = document.createElement("span");
+  s.style.cssText = "color:var(--border);font-size:0.8rem;padding:0 0.15rem;flex-shrink:0;user-select:none;";
+  s.textContent = label || "|";
+  return s;
+}
+
+async function loadModels() {
+  try {
+    const res    = await fetch(`${API_BASE}/api/models`);
+    const models = await res.json();
+    // מיזוג עם ALL_MODELS המקומי — אם השרת מחזיר blocked status
+    models.forEach(m => {
+      if (ALL_MODELS[m.id]) {
+        ALL_MODELS[m.id].heb = m.heb || ALL_MODELS[m.id].heb;
+      }
+      if (m.blocked) blockModel(m.id);  // סנכרן חסימות מהשרת
+    });
+  } catch { /* fallback — ALL_MODELS המקומי מספיק */ }
+  renderModelBar();
+}
+
+/** בונה כפתור מודל עם tooltip */
 function buildModelBtn(id, heb, blocked, blockedReason) {
-  const profile = MODEL_PROFILES[id] || {};
-  const emoji   = profile.emoji   || "🔹";
-  const bestFor = profile.best_for || "";
-  const desc    = profile.description || "";
-  const { blocked: isBlocked, reason } = isModelBlocked(id);
-  const actualBlocked = blocked || isBlocked;
+  const isAuto   = id === "auto";
+  const profile  = MODEL_PROFILES[id] || {};
+  const emoji    = isAuto ? "🧠" : (profile.emoji || "🔹");
+  const bestFor  = isAuto
+    ? "קוד · מתמטיקה · כתיבה · שיחה · מחקר · אינטרנט · מסמכים · רב-לשוניות"
+    : (profile.best_for || "");
+  const desc     = isAuto
+    ? "keyword matching + AI classification + fallback אוטומטי אם מודל חסום"
+    : (profile.description || "");
+  const { blocked: isBlocked, reason } = isAuto ? { blocked: false, reason: "" } : isModelBlocked(id);
+  const actualBlocked = (blocked || isBlocked) && !isAuto;
   const actualReason  = blockedReason || reason;
+  const provider      = isAuto ? "system" : ((ALL_MODELS[id] || {}).provider || "");
 
   const btn = document.createElement("button");
-  btn.className    = "model-btn" + (actualBlocked ? " blocked" : "");
+  btn.className     = "model-btn" + (actualBlocked ? " blocked" : "");
   btn.dataset.model = id;
   btn.style.cssText = "position:relative;";
 
-  // תוכן הכפתור: emoji + שם
-  const label = document.createElement("span");
+  const label       = document.createElement("span");
   label.textContent = emoji + " " + heb;
   btn.appendChild(label);
 
   // Tooltip
   const tip = document.createElement("div");
   tip.className = "model-tooltip";
-
-  const providerName = (ALL_MODELS[id] || {}).provider || "";
-
   tip.innerHTML =
-    '<div class="model-tooltip-name">' + emoji + " " + heb +
-      '<span style="font-size:0.65rem;color:var(--muted);font-weight:400;margin-right:auto;">' + providerName + '</span>' +
-    '</div>' +
-    (bestFor ?
-      '<div class="model-tooltip-best-label">📌 מצוין ל</div>' +
-      '<div class="model-tooltip-best">' + bestFor + '</div>'
-      : '') +
-    (desc ?
-      '<div class="model-tooltip-desc">' + desc + '</div>'
-      : '') +
-    (actualBlocked ?
-      '<div class="model-tooltip-blocked">⛔ ' + actualReason + '</div>'
-      : '');
-
+    `<div class="model-tooltip-name">${emoji} ${heb}` +
+    `<span style="font-size:0.65rem;color:var(--muted);font-weight:400;margin-right:auto;">${provider}</span></div>` +
+    (bestFor ? `<div class="model-tooltip-best-label">📌 מצוין ל</div><div class="model-tooltip-best">${bestFor}</div>` : "") +
+    (desc    ? `<div class="model-tooltip-desc">${desc}</div>` : "") +
+    (actualBlocked ? `<div class="model-tooltip-blocked">⛔ ${actualReason}</div>` : "") +
+    (isAuto  ? "" : `<div style="font-size:0.7rem;color:var(--muted);margin-top:0.4rem;border-top:1px solid var(--border);padding-top:0.4rem;">לחץ לשלוח הודעה אחת עם מודל זה · לחץ שוב לביטול</div>`);
   btn.appendChild(tip);
 
   if (!actualBlocked) {
@@ -817,12 +889,115 @@ function buildModelBtn(id, heb, blocked, blockedReason) {
   return btn;
 }
 
+/**
+ * selectModel:
+ * - "auto" → selectedModel = "auto", overrideModel = null
+ * - כל אחר → selectedModel נשאר "auto", overrideModel = id (שימוש חד-פעמי)
+ *             לחיצה שנייה על אותו מודל → ביטול override
+ */
 function selectModel(id) {
-  selectedModel = id;
-  document.querySelectorAll(".model-btn").forEach(b => b.classList.remove("active"));
-  const btn = document.querySelector(`.model-btn[data-model="${id}"]`);
-  if (btn) btn.classList.add("active");
-  document.getElementById("model-badge").textContent = id;
+  if (id === "auto") {
+    selectedModel  = "auto";
+    overrideModel  = null;
+    document.getElementById("model-badge").textContent = "auto";
+    showToast("🧠 מצב AUTO פעיל", "success");
+  } else {
+    if (overrideModel === id) {
+      // ביטול override
+      overrideModel = null;
+      showToast("🧠 חזרנו למצב AUTO", "success");
+      document.getElementById("model-badge").textContent = "auto";
+    } else {
+      // override זמני — auto נשאר default
+      overrideModel = id;
+      const profile  = MODEL_PROFILES[id] || {};
+      const emoji    = profile.emoji || "🔹";
+      const heb      = (ALL_MODELS[id] || {}).heb || id;
+      document.getElementById("model-badge").textContent = `${emoji} ${heb} (פעם אחת)`;
+      showToast(`${emoji} ${heb} — שימוש חד-פעמי`, "success");
+    }
+  }
+  // עדכן active + override-active indicator
+  document.querySelectorAll(".model-btn").forEach(b => {
+    b.classList.remove("active");
+    b.classList.remove("override-active");
+  });
+  const activeId = overrideModel || "auto";
+  const activeBtn = document.querySelector(`.model-btn[data-model="${activeId}"]`);
+  if (activeBtn) {
+    activeBtn.classList.add("active");
+    if (overrideModel) activeBtn.classList.add("override-active");
+  }
+}
+
+function clearAllFavorites() {
+  saveFavorites([]);
+  renderFavoritesList();
+  renderModelBar();
+  showToast("✕ מועדפים נוקו", "");
+}
+
+
+// ══ Favorites Modal ══════════════════════════════════════════════
+function openFavoritesModal() {
+  renderFavoritesList();
+  openModal("modal-favorites");
+}
+
+function renderFavoritesList() {
+  const favs     = loadFavorites();
+  const allIds   = Object.keys(ALL_MODELS);
+  const favSet   = new Set(favs);
+  const el       = document.getElementById("favorites-all-list");
+  el.innerHTML   = "";
+
+  // קבץ לפי ספק
+  const providerOrder = ["groq","cerebras","gemini","mistral"];
+  providerOrder.forEach(prov => {
+    const group = allIds.filter(id => ALL_MODELS[id].provider === prov);
+    if (!group.length) return;
+
+    const header = document.createElement("div");
+    header.style.cssText = "font-size:0.72rem;color:var(--muted);padding:0.4rem 0 0.2rem;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;";
+    header.textContent = { groq:"⚡ Groq", cerebras:"🧬 Cerebras", gemini:"🔵 Gemini", mistral:"🌊 Mistral" }[prov] || prov;
+    el.appendChild(header);
+
+    group.forEach(id => {
+      const info    = ALL_MODELS[id] || {};
+      const profile = MODEL_PROFILES[id] || {};
+      const emoji   = profile.emoji || "🔹";
+      const isFav   = favSet.has(id);
+
+      const item = document.createElement("div");
+      item.className = "fav-item" + (isFav ? " fav-active" : "");
+      item.innerHTML =
+        `<span class="fav-emoji">${emoji}</span>` +
+        `<span class="fav-name">${info.heb || id}</span>` +
+        `<span class="fav-provider" style="font-size:0.7rem;color:var(--muted);">${id}</span>` +
+        `<button class="fav-toggle-btn" onclick="toggleFavorite('${id}', this)">` +
+          (isFav ? "★ מועדף" : "☆ הוסף") +
+        `</button>`;
+      el.appendChild(item);
+    });
+  });
+}
+
+function toggleFavorite(id, btn) {
+  const favs  = loadFavorites();
+  const idx   = favs.indexOf(id);
+  if (idx >= 0) {
+    favs.splice(idx, 1);
+    btn.textContent = "☆ הוסף";
+    btn.closest(".fav-item").classList.remove("fav-active");
+    showToast("☆ הוסר ממועדפים", "");
+  } else {
+    favs.push(id);
+    btn.textContent = "★ מועדף";
+    btn.closest(".fav-item").classList.add("fav-active");
+    showToast("★ נוסף למועדפים", "success");
+  }
+  saveFavorites(favs);
+  renderModelBar(); // עדכן בר מיד
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -867,38 +1042,132 @@ const ALL_MODELS = {
   "mistral-nemo":    { provider: "mistral", heb: "Mistral Nemo 12B" },
 };
 
-// --- MODEL_PROFILES (emoji + best_for) מתוך main.py ---
+// --- MODEL_PROFILES (emoji + best_for + description) מתוך main.py ---
 const MODEL_PROFILES = {
-  "llama-3.1-8b-instant":    { emoji: "⚡", best_for: "שיחות יומיומיות, שאלות פשוטות, סיכומים קצרים" },
-  "llama-3.3-70b-versatile": { emoji: "✍️", best_for: "כתיבה, עברית, ניתוח טקסט, תרגום, שאלות כלליות" },
-  "llama-4-scout":           { emoji: "📄", best_for: "מסמכים ארוכים מאוד, ניתוח קוד בסקייל, עיבוד קבצים ענקיים" },
-  "llama-4-maverick":        { emoji: "🌍", best_for: "רב-לשוניות, הנמקה מתקדמת, שאלות בשפות זרות, ידע כללי רחב" },
-  "kimi-k2":                 { emoji: "💻", best_for: "קוד, תכנות, debugging, הנדסת תוכנה, אוטומציה" },
-  "qwen3-32b":               { emoji: "🔢", best_for: "מתמטיקה, STEM, לוגיקה, חישובים, פיזיקה, כימיה" },
-  "gpt-oss-20b":             { emoji: "🎯", best_for: "שאלות בינוניות, תגובות מהירות ומדויקות" },
-  "gpt-oss-120b":            { emoji: "🧠", best_for: "מחקר עמוק, reasoning מורכב, פילוסופיה, השוואות, ניתוח אסטרטגי" },
-  "groq-compound-mini":      { emoji: "🔍", best_for: "שאלות על אירועים עדכניים, מחירים, חדשות, מזג אוויר" },
-  "groq-compound":           { emoji: "🔬", best_for: "מחקר מרובה מקורות, ניתוח עם ריצת קוד, שאלות שדורשות כמה חיפושים" },
-  "cerebras-llama3.1-8b":   { emoji: "⚡", best_for: "שאלות קצרות וישירות, שיחות מהירות, chatbot בזמן אמת" },
-  "cerebras-gpt-oss-120b":  { emoji: "🚀", best_for: "reasoning מתקדם, קוד, מתמטיקה, מחקר עמוק — ומהיר פי 15" },
-  "cerebras-qwen3-235b":    { emoji: "🌟", best_for: "ידע כללי, ריבוי לשונות, STEM, כתיבה, הנמקה — הכי חכם ב-Cerebras" },
-  "cerebras-zai-glm-4.7":  { emoji: "🤖", best_for: "משימות סוכן, קוד מורכב, SWE-bench, יכולות כלים מתקדמות" },
-  "gemini-2.5-flash-lite":  { emoji: "💡", best_for: "batch גדול, עיבוד מסמכים ארוכים, שאלות פשוטות, מיון" },
-  "gemini-2.5-flash":       { emoji: "⚡", best_for: "שאלות כלליות, כתיבה, קוד, תמונות, מסמכים, ריבוי לשונות" },
-  "gemini-2.5-pro":         { emoji: "💎", best_for: "reasoning מורכב, קוד ארוך, ניתוח מסמכים ענקיים, STEM מתקדם" },
-  "gemini-3-flash":         { emoji: "🌠", best_for: "שיחות מהירות, כתיבה, ידע כללי — חזק כמו Pro דורות קודמים" },
-  "gemini-3-pro":           { emoji: "🏆", best_for: "המשימות הכי קשות: reasoning מולטי-שלבי, vibe coding, agentic workflows" },
-  "mistral-large":          { emoji: "🌊", best_for: "כתיבה מורכבת, ניתוח עמוק, ריבוי לשונות, ידע כללי" },
-  "mistral-medium":         { emoji: "🖼️", best_for: "מולטימודאלי, תמונות + טקסט, ניתוח מסמכים, RAG" },
-  "mistral-small":          { emoji: "⚡", best_for: "שיחות יומיומיות, כתיבה מהירה, עיבוד טקסט, batch" },
-  "ministral-14b":          { emoji: "📋", best_for: "מסמכים, vision, הסברים, תרגום, שאלות בינוניות–מורכבות" },
-  "ministral-8b":           { emoji: "🚀", best_for: "שאלות מהירות, עיבוד טקסט, תגובות יומיומיות" },
-  "ministral-3b":           { emoji: "💨", best_for: "edge deployment, batch גדול, latency מינימלי" },
-  "magistral-medium":       { emoji: "🧮", best_for: "מתמטיקה, לוגיקה, הנמקה מורכבת, הוכחות, STEM מתקדם" },
-  "magistral-small":        { emoji: "🔮", best_for: "reasoning בינוני, מתמטיקה שוטפת, בעיות לוגיקה" },
-  "codestral":              { emoji: "💻", best_for: "השלמת קוד (FIM), code completion ב-IDE, developer tools" },
-  "devstral":               { emoji: "🛠️", best_for: "סוכן קוד אוטונומי, SWE-agent, ניווט codebase" },
-  "mistral-nemo":           { emoji: "🌍", best_for: "ריבוי לשונות, עברית, ערבית, שפות אירופאיות, תרגום" },
+  // ===== Groq =====
+  "llama-3.1-8b-instant":    {
+    emoji: "⚡", best_for: "שיחות יומיומיות, שאלות פשוטות, סיכומים קצרים",
+    description: "מהיר ביותר (166 t/s). מספיק לרוב השאלות הקצרות."
+  },
+  "llama-3.3-70b-versatile": {
+    emoji: "✍️", best_for: "כתיבה, עברית, ניתוח טקסט, תרגום, שאלות כלליות",
+    description: "מצוין בהוראות (IFEval 92.1). ביצועים שווים ל-Llama 3.1 405B."
+  },
+  "llama-4-scout": {
+    emoji: "📄", best_for: "מסמכים ארוכים מאוד, ניתוח קוד בסקייל, עיבוד קבצים ענקיים",
+    description: "קונטקסט 10M טוקן — הכי ארוך בעולם. MoE 109B, מהיר על GPU אחד."
+  },
+  "llama-4-maverick": {
+    emoji: "🌍", best_for: "רב-לשוניות, הנמקה מתקדמת, שאלות בשפות זרות, ידע כללי רחב",
+    description: "MMLU Pro 80.5%, GPQA 69.8%. עולה על GPT-4o ו-Gemini 2.0 Flash."
+  },
+  "kimi-k2": {
+    emoji: "💻", best_for: "קוד, תכנות, debugging, הנדסת תוכנה, אוטומציה",
+    description: "מוביל open-source בקוד (SWE-bench 65.8%). 1T פרמטרים."
+  },
+  "qwen3-32b": {
+    emoji: "🔢", best_for: "מתמטיקה, STEM, לוגיקה, חישובים, פיזיקה, כימיה",
+    description: "מוביל ב-MATH benchmark (83+). חזק ב-STEM ו-reasoning מתמטי."
+  },
+  "gpt-oss-20b": {
+    emoji: "🎯", best_for: "שאלות בינוניות, תגובות מהירות ומדויקות",
+    description: "גרסה קלה ומהירה של GPT-OSS. איזון מצוין בין מהירות לאיכות."
+  },
+  "gpt-oss-120b": {
+    emoji: "🧠", best_for: "מחקר עמוק, reasoning מורכב, פילוסופיה, השוואות, ניתוח אסטרטגי",
+    description: "המודל הגדול ביותר (120B). לניתוחים שדורשים עומק מרובה שלבים."
+  },
+  "groq-compound-mini": {
+    emoji: "🔍", best_for: "שאלות על אירועים עדכניים, מחירים, חדשות, מזג אוויר",
+    description: "מחפש באינטרנט בעצמו. מהיר, שאלה אחת. עולה על GPT-4o-search."
+  },
+  "groq-compound": {
+    emoji: "🔬", best_for: "מחקר מרובה מקורות, ניתוח עם ריצת קוד, שאלות שדורשות כמה חיפושים",
+    description: "עד 10 חיפושי אינטרנט + ריצת קוד בענן."
+  },
+  // ===== Cerebras =====
+  "cerebras-llama3.1-8b": {
+    emoji: "⚡", best_for: "שאלות קצרות וישירות, שיחות מהירות, chatbot בזמן אמת",
+    description: "2200 t/s על Cerebras — הכי מהיר לשאלות פשוטות. מתאים לצ'אט חי ו-batch processing."
+  },
+  "cerebras-gpt-oss-120b": {
+    emoji: "🚀", best_for: "reasoning מתקדם, קוד, מתמטיקה, מחקר עמוק — ומהיר פי 15 מ-GPU רגיל",
+    description: "שווה ל-o4-mini באיכות, 3000 t/s על Cerebras. מודל OpenAI ב-Apache 2.0."
+  },
+  "cerebras-qwen3-235b": {
+    emoji: "🌟", best_for: "ידע כללי, ריבוי לשונות, STEM, כתיבה, הנמקה — הכי חכם ב-Cerebras",
+    description: "עולה על Claude 4 Sonnet ו-GPT-4.1 ב-Artificial Analysis. 1400 t/s, 131K context."
+  },
+  "cerebras-zai-glm-4.7": {
+    emoji: "🤖", best_for: "משימות סוכן, קוד מורכב, SWE-bench, יכולות כלים מתקדמות",
+    description: "355B פרמטרים, המודל הכי חכם ב-Cerebras לפי Artificial Analysis. מצטיין ב-agentic tasks."
+  },
+  // ===== Gemini =====
+  "gemini-2.5-flash-lite": {
+    emoji: "💡", best_for: "batch גדול, עיבוד מסמכים ארוכים, שאלות פשוטות, מיון — הכי גדול RPD חינמי (1000/יום)",
+    description: "הכי מהיר ב-Gemini 2.5, 1M context. Free tier: 1,000 RPD / 15 RPM. משתלם מאוד."
+  },
+  "gemini-2.5-flash": {
+    emoji: "⚡", best_for: "שאלות כלליות, כתיבה, קוד, תמונות, מסמכים, ריבוי לשונות — מאוזן מצוין",
+    description: "המודל הכי פופולרי של Google. 1M context, vision, thinking mode. Free: 250 RPD."
+  },
+  "gemini-2.5-pro": {
+    emoji: "💎", best_for: "reasoning מורכב, קוד ארוך, ניתוח מסמכים ענקיים, שאלות STEM מתקדמות",
+    description: "הכי חכם ב-2.5. Thinking mode מובנה. Free: 100 RPD / 5 RPM — לשמור לשאלות כבדות."
+  },
+  "gemini-3-flash": {
+    emoji: "🌠", best_for: "שיחות מהירות, כתיבה, ידע כללי — חזק כמו Pro דורות קודמים, מהיר יותר",
+    description: "Gemini 3 Flash Preview — מאזן frontier intelligence עם מהירות ומחיר."
+  },
+  "gemini-3-pro": {
+    emoji: "🏆", best_for: "המשימות הכי קשות: reasoning מולטי-שלבי, vibe coding, ניתוח מעמיק, agentic workflows",
+    description: "הכי חכם של Google (פברואר 2026). State-of-the-art multimodal, 1M context."
+  },
+  // ===== Mistral =====
+  "mistral-large": {
+    emoji: "🌊", best_for: "כתיבה מורכבת, ניתוח עמוק, ריבוי לשונות, ידע כללי, שאלות משפטיות ועסקיות",
+    description: "המודל הגדול של Mistral (open-weight). 128K context, מצוין בעברית ובשפות אירופאיות."
+  },
+  "mistral-medium": {
+    emoji: "🖼️", best_for: "מולטימודאלי, תמונות + טקסט, ניתוח מסמכים, RAG, שאלות כלליות",
+    description: "Mistral Medium 3.1 — frontier עם vision. 128K context, מאזן מצוין בין מהירות לאיכות."
+  },
+  "mistral-small": {
+    emoji: "⚡", best_for: "שיחות יומיומיות, כתיבה מהירה, עיבוד טקסט, batch, עלות-תועלת גבוהה",
+    description: "Mistral Small 3.2 — עדכון יוני 2025. open-weight, מהיר ומשתלם מאוד."
+  },
+  "ministral-14b": {
+    emoji: "📋", best_for: "מסמכים, vision, הסברים, תרגום, שאלות בינוניות–מורכבות",
+    description: "Ministral 3 14B — open, vision, 128K context. הכי חכם בסדרת Ministral."
+  },
+  "ministral-8b": {
+    emoji: "🚀", best_for: "שאלות מהירות, עיבוד טקסט, תגובות יומיומיות במחיר נמוך",
+    description: "Ministral 3 8B — open, vision, 128K context. מהיר ויעיל לשימוש יומיומי."
+  },
+  "ministral-3b": {
+    emoji: "💨", best_for: "edge deployment, מכשירים מוגבלים, batch גדול, latency מינימלי",
+    description: "Ministral 3 3B — הכי קטן וקל של Mistral. tiny & efficient, open-weight."
+  },
+  "magistral-medium": {
+    emoji: "🧮", best_for: "מתמטיקה, לוגיקה, הנמקה מורכבת, הוכחות, STEM מתקדם, בעיות רב-שלביות",
+    description: "מודל reasoning חזק עם thinking מפורש. עולה על o3-mini בבעיות לוגיקה ומתמטיקה."
+  },
+  "magistral-small": {
+    emoji: "🔮", best_for: "reasoning בינוני, מתמטיקה שוטפת, בעיות לוגיקה, מהיר יותר מ-Medium",
+    description: "Magistral Small 1.2 — open-weight reasoning model. שקיפות בשרשרת המחשבה."
+  },
+  "codestral": {
+    emoji: "💻", best_for: "השלמת קוד (FIM), code completion ב-IDE, קוד מהיר ומדויק, developer tools",
+    description: "Codestral — מותאם במיוחד ל-fill-in-the-middle. הכי מהיר ומדויק לקוד בין מודלי Mistral."
+  },
+  "devstral": {
+    emoji: "🛠️", best_for: "סוכן קוד אוטונומי, SWE-agent, ניווט codebase, עריכת קבצים מרובים, GitHub tasks",
+    description: "Devstral 2 — frontier code agent. open-weight, מוביל open-source ב-SWE-bench."
+  },
+  "mistral-nemo": {
+    emoji: "🌍", best_for: "ריבוי לשונות, עברית, ערבית, שפות אירופאיות, תרגום, chatbot רב-לשוני",
+    description: "Mistral Nemo 12B — best multilingual open source. 128K context, Apache 2.0."
+  },
 };
 
 // --- PROVIDER_BLOCK_CONFIG (מתוך main.py) ---
@@ -1247,9 +1516,17 @@ async function sendMessage() {
     // ── בחירה אוטומטית של מודל ─────────────────────────────
     let modelToUse = selectedModel;
     let autoInfo   = null;   // { model, emoji, heb, category, method }
+    const hadOverride = !!overrideModel;
 
-    if (selectedModel === "auto" && text) {
-      // עדכן badge בזמן חיפוש
+    if (overrideModel) {
+      // שימוש חד-פעמי במודל שנבחר ידנית
+      modelToUse = overrideModel;
+      const profile = MODEL_PROFILES[modelToUse] || {};
+      autoInfo = { model: modelToUse, emoji: profile.emoji || "🔹",
+                   heb: (ALL_MODELS[modelToUse] || {}).heb || modelToUse,
+                   category: "MANUAL", method: "manual" };
+    } else if (selectedModel === "auto" && text) {
+      // בחירה אוטומטית
       document.getElementById("model-badge").textContent = "🔍 בוחר מודל…";
       autoInfo   = await selectModelAuto(text);
       modelToUse = autoInfo.model;
@@ -1328,8 +1605,18 @@ async function sendMessage() {
       if (history.length > 40) history.splice(0, history.length - 40);
       setHistory(history);
 
-      // עדכן badge
-      if (selectedModel === "auto") {
+      // אחרי שליחה — אם היה override, חזור ל-auto
+      if (hadOverride) {
+        overrideModel = null;
+        document.getElementById("model-badge").textContent = "auto";
+        document.querySelectorAll(".model-btn").forEach(b => {
+          b.classList.remove("override-active");
+          b.classList.remove("active");
+        });
+        const autoBtn = document.querySelector('.model-btn[data-model="auto"]');
+        if (autoBtn) autoBtn.classList.add("active");
+        showToast("🧠 חזרנו ל-AUTO", "");
+      } else if (selectedModel === "auto") {
         document.getElementById("model-badge").textContent = `auto · ${emoji}${heb}`;
       }
 
@@ -1886,6 +2173,22 @@ function unblockAll() {
     <div class="modal-actions">
       <button class="btn-danger" onclick="unblockAll()">🔓 בטל הכל</button>
       <button class="btn-secondary" onclick="closeModal('modal-blocked')">סגור</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══ MODAL: FAVORITES ════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-favorites">
+  <div class="modal" style="width:min(500px,94vw);">
+    <h3>⭐ מודלים מועדפים</h3>
+    <p style="font-size:0.83rem;color:var(--muted);margin-bottom:0.8rem;">
+      מודלים מועדפים יופיעו ראשונים בבר. לחיצה על מודל בבר שולחת את ההודעה הבאה אליו, ואז חוזרים אוטומטית ל-AUTO.
+    </p>
+    <div id="favorites-all-list"></div>
+    <div class="modal-actions">
+      <button class="btn-danger" onclick="clearAllFavorites()">✕ נקה הכל</button>
+      <button class="btn-secondary" onclick="closeModal('modal-favorites')">סגור</button>
     </div>
   </div>
 </div>
