@@ -1,0 +1,1759 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Chat</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+  /* ── Variables ─────────────────────────────────────────── */
+  :root {
+    --bg:       #0d0e12;
+    --surface:  #16181f;
+    --border:   #252836;
+    --accent:   #5b8dee;
+    --accent2:  #a78bfa;
+    --text:     #e2e4ec;
+    --muted:    #7a7f96;
+    --user-bg:  #1e2235;
+    --bot-bg:   #151821;
+    --danger:   #ef4444;
+    --success:  #22c55e;
+    --warning:  #f59e0b;
+    --radius:   14px;
+    --mono:     'JetBrains Mono', monospace;
+    --sans:     'Noto Sans Hebrew', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: var(--sans); background: var(--bg); color: var(--text); }
+
+  /* ── Auth Overlay ───────────────────────────────────────── */
+  #auth-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg); transition: opacity 0.4s;
+  }
+  #auth-overlay.hidden { opacity: 0; pointer-events: none; }
+  .auth-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 20px; padding: 2.5rem 3rem;
+    width: min(380px, 90vw); text-align: center;
+    box-shadow: 0 0 60px rgba(91,141,238,0.08);
+  }
+  .auth-card .lock-icon { font-size: 2.8rem; margin-bottom: 1rem; display: block; filter: drop-shadow(0 0 12px rgba(91,141,238,0.5)); }
+  .auth-card h2 { font-size: 1.3rem; font-weight: 600; margin-bottom: 0.4rem; }
+  .auth-card p { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.6rem; }
+  .auth-card input {
+    width: 100%; padding: 0.75rem 1rem;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; color: var(--text);
+    font-family: var(--sans); font-size: 1rem;
+    text-align: center; letter-spacing: 0.08em;
+    outline: none; transition: border-color 0.2s; direction: ltr;
+  }
+  .auth-card input:focus { border-color: var(--accent); }
+  .auth-card input.error { border-color: var(--danger); }
+  .auth-card button {
+    margin-top: 1rem; width: 100%; padding: 0.75rem; border: none; border-radius: 10px;
+    background: var(--accent); color: #fff;
+    font-family: var(--sans); font-size: 1rem; font-weight: 500;
+    cursor: pointer; transition: opacity 0.2s, transform 0.1s;
+  }
+  .auth-card button:hover { opacity: 0.85; }
+  .auth-card button:active { transform: scale(0.98); }
+  .auth-card .err-msg { margin-top: 0.75rem; color: var(--danger); font-size: 0.85rem; min-height: 1.2em; }
+
+  /* ── App Layout ─────────────────────────────────────────── */
+  #app { display: flex; flex-direction: column; height: 100dvh; }
+
+  /* ── Header ─────────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; gap: 0.7rem;
+    padding: 0.7rem 1.2rem;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .logo { font-size: 1.4rem; }
+  header h1 { font-size: 1rem; font-weight: 600; flex: 1; }
+  .header-badge {
+    font-size: 0.72rem; padding: 0.2rem 0.55rem;
+    background: rgba(91,141,238,0.12); color: var(--accent);
+    border-radius: 999px; border: 1px solid rgba(91,141,238,0.25);
+    white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .header-icon-btn {
+    background: none; border: 1px solid var(--border);
+    border-radius: 8px; color: var(--muted);
+    font-size: 0.95rem; width: 30px; height: 30px;
+    cursor: pointer; transition: all 0.15s;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .header-icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .header-icon-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+  /* ── Model bar ───────────────────────────────────────────── */
+  .model-bar {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    flex-shrink: 0; overflow-x: auto; scrollbar-width: none;
+  }
+  .model-bar::-webkit-scrollbar { display: none; }
+  .model-label { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+  .model-btn {
+    flex-shrink: 0; padding: 0.28rem 0.7rem;
+    border: 1px solid var(--border); border-radius: 999px;
+    background: transparent; color: var(--muted);
+    font-family: var(--sans); font-size: 0.75rem;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .model-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .model-btn.active { border-color: var(--accent); background: rgba(91,141,238,0.12); color: var(--accent); font-weight: 500; }
+  .model-btn.blocked { opacity: 0.35; cursor: not-allowed; }
+
+  /* ── Toolbar (below model bar) ──────────────────────────── */
+  .toolbar {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.4rem 1rem;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    flex-shrink: 0; overflow-x: auto; scrollbar-width: none;
+  }
+  .toolbar::-webkit-scrollbar { display: none; }
+  .tool-btn {
+    flex-shrink: 0; padding: 0.25rem 0.65rem;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--muted);
+    font-family: var(--sans); font-size: 0.75rem;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    display: flex; align-items: center; gap: 0.3rem;
+  }
+  .tool-btn:hover { border-color: var(--accent2); color: var(--accent2); background: rgba(167,139,250,0.06); }
+  .tool-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .tool-separator { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; margin: 0 0.1rem; }
+  #active-chat-label {
+    font-size: 0.72rem; color: var(--muted);
+    padding: 0.25rem 0.6rem;
+    background: rgba(167,139,250,0.06); border: 1px solid rgba(167,139,250,0.2);
+    border-radius: 999px; white-space: nowrap;
+    margin-right: auto;
+  }
+  #active-chat-label span { color: var(--accent2); font-weight: 500; }
+
+  /* ── Messages ────────────────────────────────────────────── */
+  #messages {
+    flex: 1; overflow-y: auto;
+    padding: 1.2rem 1rem;
+    display: flex; flex-direction: column; gap: 0.9rem;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  #messages::-webkit-scrollbar { width: 4px; }
+  #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .msg {
+    display: flex; gap: 0.7rem; align-items: flex-start;
+    max-width: 820px; width: 100%;
+    animation: fadeUp 0.25s ease both;
+  }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .msg.user { flex-direction: row-reverse; margin-right: auto; margin-left: 0; }
+  .msg.bot  { margin-left: auto; margin-right: 0; }
+  .msg-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.95rem; flex-shrink: 0; border: 1px solid var(--border);
+  }
+  .msg.user .msg-avatar { background: rgba(91,141,238,0.15); }
+  .msg.bot  .msg-avatar { background: rgba(167,139,250,0.12); }
+  .msg-bubble {
+    padding: 0.75rem 0.95rem; border-radius: var(--radius);
+    line-height: 1.65; font-size: 0.9rem;
+    max-width: 680px; border: 1px solid var(--border);
+  }
+  .msg.user .msg-bubble { background: var(--user-bg); border-radius: var(--radius) 4px var(--radius) var(--radius); }
+  .msg.bot  .msg-bubble { background: var(--bot-bg);  border-radius: 4px var(--radius) var(--radius) var(--radius); }
+  .msg-meta { font-size: 0.7rem; color: var(--muted); margin-top: 0.3rem; }
+  .msg-bubble pre {
+    background: #0a0b0f; border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.75rem;
+    overflow-x: auto; margin-top: 0.5rem;
+    font-family: var(--mono); font-size: 0.8rem;
+    direction: ltr; text-align: left;
+  }
+  .msg-bubble code {
+    font-family: var(--mono); font-size: 0.83em;
+    background: rgba(255,255,255,0.07); border-radius: 4px; padding: 0.1em 0.35em;
+  }
+  .msg-bubble pre code { background: none; padding: 0; font-size: 1em; }
+  .typing-dots span {
+    display: inline-block; width: 7px; height: 7px;
+    border-radius: 50%; background: var(--muted); margin: 0 2px;
+    animation: bounce 1s infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.30s; }
+  @keyframes bounce { 0%,80%,100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+
+  /* ── Input bar ───────────────────────────────────────────── */
+  .input-bar {
+    padding: 0.85rem 1rem;
+    background: var(--surface); border-top: 1px solid var(--border);
+    display: flex; gap: 0.65rem; align-items: flex-end; flex-shrink: 0;
+  }
+  textarea#input {
+    flex: 1; resize: none; overflow: hidden;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; color: var(--text);
+    font-family: var(--sans); font-size: 0.93rem;
+    padding: 0.7rem 1rem; outline: none;
+    min-height: 46px; max-height: 160px;
+    transition: border-color 0.2s; line-height: 1.5;
+  }
+  textarea#input:focus { border-color: var(--accent); }
+  textarea#input::placeholder { color: var(--muted); }
+  #send-btn {
+    width: 46px; height: 46px; border: none; border-radius: 12px;
+    background: var(--accent); color: #fff;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: opacity 0.2s, transform 0.1s; flex-shrink: 0;
+  }
+  #send-btn:hover { opacity: 0.85; }
+  #send-btn:active { transform: scale(0.94); }
+  #send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  #send-btn svg { width: 19px; height: 19px; }
+  #file-btn {
+    width: 36px; height: 46px; border: 1px solid var(--border); border-radius: 12px;
+    background: transparent; color: var(--muted);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s; flex-shrink: 0; font-size: 1.1rem;
+  }
+  #file-btn:hover { border-color: var(--accent); color: var(--accent); }
+  #file-input { display: none; }
+
+  /* ── Modal ────────────────────────────────────────────────── */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    animation: fadeIn 0.15s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .modal-overlay.hidden { display: none; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 1.75rem;
+    width: min(440px, 92vw);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    animation: slideUp 0.2s ease;
+  }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  .modal h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 1rem; }
+  .modal p { color: var(--muted); font-size: 0.88rem; margin-bottom: 1.2rem; line-height: 1.6; }
+  .modal input, .modal textarea {
+    width: 100%; padding: 0.65rem 0.9rem;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 9px; color: var(--text);
+    font-family: var(--sans); font-size: 0.9rem;
+    outline: none; transition: border-color 0.2s;
+    direction: rtl;
+  }
+  .modal input:focus, .modal textarea:focus { border-color: var(--accent); }
+  .modal textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+  .modal-actions { display: flex; gap: 0.6rem; margin-top: 1rem; }
+  .modal-actions button {
+    flex: 1; padding: 0.65rem; border: none; border-radius: 9px;
+    font-family: var(--sans); font-size: 0.9rem; font-weight: 500;
+    cursor: pointer; transition: opacity 0.2s;
+  }
+  .modal-actions button:hover { opacity: 0.85; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-secondary { background: var(--border); color: var(--text); }
+  .btn-danger { background: var(--danger); color: #fff; }
+
+  /* ── Chat list ────────────────────────────────────────────── */
+  .chat-list { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; max-height: 240px; overflow-y: auto; }
+  .chat-item {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.55rem 0.8rem; border-radius: 9px;
+    border: 1px solid var(--border); cursor: pointer;
+    transition: all 0.15s; font-size: 0.88rem;
+  }
+  .chat-item:hover { border-color: var(--accent2); background: rgba(167,139,250,0.05); }
+  .chat-item.active { border-color: var(--accent2); background: rgba(167,139,250,0.1); color: var(--accent2); }
+  .chat-item-name { flex: 1; }
+  .chat-item-count { font-size: 0.72rem; color: var(--muted); }
+  .chat-item-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.9rem; padding: 0 0.2rem; transition: color 0.15s; }
+  .chat-item-del:hover { color: var(--danger); }
+
+  /* ── Memory list ───────────────────────────────────────────── */
+  .memory-list { display: flex; flex-direction: column; gap: 0.35rem; max-height: 220px; overflow-y: auto; margin-bottom: 1rem; }
+  .memory-item {
+    display: flex; align-items: flex-start; gap: 0.5rem;
+    padding: 0.5rem 0.75rem; border-radius: 8px;
+    border: 1px solid var(--border); font-size: 0.85rem; line-height: 1.5;
+  }
+  .memory-text { flex: 1; }
+  .memory-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.85rem; padding: 0.1rem; transition: color 0.15s; flex-shrink: 0; margin-top: 0.1rem; }
+  .memory-del:hover { color: var(--danger); }
+
+  /* ── Tone list ───────────────────────────────────────────── */
+  .tone-list { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem; }
+  .tone-item {
+    padding: 0.55rem 0.8rem; border-radius: 9px;
+    border: 1px solid var(--border); cursor: pointer;
+    transition: all 0.15s; font-size: 0.87rem;
+  }
+  .tone-item:hover { border-color: var(--accent); background: rgba(91,141,238,0.05); }
+  .tone-item.active { border-color: var(--accent); background: rgba(91,141,238,0.1); color: var(--accent); }
+  .tone-desc { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; }
+
+  /* ── Stats panel ───────────────────────────────────────────── */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 1rem; }
+  .stat-card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.75rem; text-align: center;
+  }
+  .stat-value { font-size: 1.4rem; font-weight: 600; color: var(--accent); }
+  .stat-label { font-size: 0.72rem; color: var(--muted); margin-top: 0.15rem; }
+  .model-stat { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; font-size: 0.83rem; }
+  .model-stat-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .model-stat-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.4s; }
+
+  /* ── Summary / Export area ──────────────────────────────── */
+  .summary-text {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.9rem; font-size: 0.85rem;
+    line-height: 1.7; max-height: 280px; overflow-y: auto;
+    direction: rtl; white-space: pre-wrap;
+  }
+  .export-content {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.9rem; font-size: 0.78rem;
+    line-height: 1.6; max-height: 260px; overflow-y: auto;
+    direction: rtl; white-space: pre-wrap; font-family: var(--mono);
+  }
+
+  /* ── Toast ────────────────────────────────────────────────── */
+  #toast {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.6rem 1.2rem;
+    font-size: 0.85rem; color: var(--text);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 999;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.success { border-color: var(--success); color: var(--success); }
+  #toast.error   { border-color: var(--danger);  color: var(--danger); }
+
+  /* ── File preview ──────────────────────────────────────── */
+  #file-preview {
+    display: none; align-items: center; gap: 0.5rem;
+    padding: 0.4rem 0.8rem; background: rgba(91,141,238,0.08);
+    border-top: 1px solid var(--border); font-size: 0.8rem; color: var(--accent);
+  }
+  #file-preview.visible { display: flex; }
+  #file-preview button { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; }
+  #file-preview button:hover { color: var(--danger); }
+
+  /* ── Responsive ─────────────────────────────────────────── */
+  @media (max-width: 600px) {
+    header { padding: 0.6rem 0.8rem; }
+    .auth-card { padding: 2rem 1.5rem; }
+    .msg-bubble { font-size: 0.86rem; }
+    .toolbar { padding: 0.35rem 0.7rem; }
+    .modal { padding: 1.25rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══ AUTH OVERLAY ══════════════════════════════════════════ -->
+<div id="auth-overlay">
+  <div class="auth-card">
+    <span class="lock-icon">🔒</span>
+    <h2>AI Chat</h2>
+    <p>גישה פרטית — הכנס סיסמה כדי להמשיך</p>
+    <input type="password" id="pw-input" placeholder="סיסמה" autocomplete="off"
+           onkeydown="if(event.key==='Enter') doLogin()"/>
+    <button onclick="doLogin()">כניסה</button>
+    <div class="err-msg" id="err-msg"></div>
+  </div>
+</div>
+
+<!-- ══ APP ════════════════════════════════════════════════════ -->
+<div id="app">
+  <header>
+    <span class="logo">🤖</span>
+    <h1>AI Chat</h1>
+    <span class="header-badge" id="model-badge">auto</span>
+    <button class="header-icon-btn" onclick="openChatsModal()" title="צ׳אטים">💬</button>
+    <button class="header-icon-btn" onclick="openMemoryModal()" title="זיכרון">🧠</button>
+    <button class="header-icon-btn" onclick="openStatsModal()" title="סטטיסטיקות">📊</button>
+    <button class="header-icon-btn danger" onclick="doLogout()" title="התנתק">🔓</button>
+  </header>
+
+  <div class="model-bar">
+    <span class="model-label">מודל:</span>
+    <button class="model-btn active" data-model="auto" onclick="selectModel('auto')">⚡ אוטומטי</button>
+  </div>
+
+  <div class="toolbar">
+    <span id="active-chat-label">צ׳אט: <span id="chat-name-display">ראשי</span></span>
+    <div class="tool-separator"></div>
+    <button class="tool-btn" onclick="doUndo()" id="btn-undo" title="ביטול הודעה אחרונה">↩️ בטל</button>
+    <button class="tool-btn" onclick="doRedo()" id="btn-redo" title="שחזור">↪️ שחזר</button>
+    <button class="tool-btn" onclick="doRetry()" id="btn-retry" title="שלח מחדש">🔄 נסה שוב</button>
+    <div class="tool-separator"></div>
+    <button class="tool-btn" onclick="doSummarize()" title="סיכום הצ׳אט">📋 סכם</button>
+    <button class="tool-btn" onclick="doExport()" title="ייצוא כ-txt">📤 ייצא</button>
+    <div class="tool-separator"></div>
+    <button class="tool-btn" onclick="openToneModal()" title="סגנון תשובה">🎨 סגנון</button>
+    <div class="tool-separator"></div>
+    <button class="tool-btn" onclick="doReport()" title="קרדיטים נגמרו? חסום מודל אוטומטית" id="btn-report">⛔ דווח</button>
+    <button class="tool-btn" onclick="openBlockedModal()" title="מודלים חסומים כרגע" id="btn-blocked">🔒 חסומים</button>
+  </div>
+
+  <div id="messages">
+    <div class="msg bot" id="welcome-msg">
+      <div class="msg-avatar">🤖</div>
+      <div><div class="msg-bubble">שלום! אני כאן לעזור. במה אוכל לסייע לך? 😊</div></div>
+    </div>
+  </div>
+
+  <div id="file-preview">
+    <span>📎</span>
+    <span id="file-name">קובץ.png</span>
+    <button onclick="clearFile()">✕</button>
+  </div>
+
+  <div class="input-bar">
+    <button id="file-btn" onclick="document.getElementById('file-input').click()" title="צרף קובץ/תמונה">📎</button>
+    <input type="file" id="file-input" accept="image/*,.pdf,.txt,.doc,.docx" onchange="handleFileSelect(this)"/>
+    <textarea id="input" placeholder="כתוב הודעה…" rows="1"
+              onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+    <button id="send-btn" onclick="sendMessage()" title="שלח">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"></line>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- ══ TOAST ═══════════════════════════════════════════════════ -->
+<div id="toast"></div>
+
+<!-- ══ MODAL: CHATS ════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-chats">
+  <div class="modal">
+    <h3>💬 ניהול צ׳אטים</h3>
+    <div class="chat-list" id="chat-list"></div>
+    <div class="modal-actions">
+      <button class="btn-primary" onclick="promptNewChat()">+ צ׳אט חדש</button>
+      <button class="btn-secondary" onclick="closeModal('modal-chats')">סגור</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: NEW CHAT ═════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-newchat">
+  <div class="modal">
+    <h3>💬 צ׳אט חדש</h3>
+    <input type="text" id="newchat-name" placeholder="שם הצ׳אט…" maxlength="40"
+           onkeydown="if(event.key==='Enter') confirmNewChat()"/>
+    <div class="modal-actions" style="margin-top:0.8rem;">
+      <button class="btn-primary" onclick="confirmNewChat()">צור</button>
+      <button class="btn-secondary" onclick="closeModal('modal-newchat'); openChatsModal()">ביטול</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: CONFIRM DELETE CHAT ═════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-delchat">
+  <div class="modal">
+    <h3>🗑️ מחיקת צ׳אט</h3>
+    <p id="delchat-msg">האם למחוק את הצ׳אט?</p>
+    <div class="modal-actions">
+      <button class="btn-danger" onclick="confirmDeleteChat()">✅ כן, מחק</button>
+      <button class="btn-secondary" onclick="closeModal('modal-delchat'); openChatsModal()">ביטול</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: MEMORY ═══════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-memory">
+  <div class="modal">
+    <h3>🧠 זיכרונות שמורים</h3>
+    <div class="memory-list" id="memory-list"></div>
+    <input type="text" id="new-memory-input" placeholder="הוסף עובדה לזיכרון…"
+           onkeydown="if(event.key==='Enter') addMemory()"/>
+    <div class="modal-actions" style="margin-top:0.7rem;">
+      <button class="btn-primary" onclick="addMemory()">שמור</button>
+      <button class="btn-danger" onclick="clearAllMemory()" id="btn-clear-all-memory">מחק הכל</button>
+      <button class="btn-secondary" onclick="closeModal('modal-memory')">סגור</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: TONE ═════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-tone">
+  <div class="modal">
+    <h3>🎨 סגנון תשובה</h3>
+    <div class="tone-list" id="tone-list"></div>
+    <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.5rem;">או הכנס סגנון חופשי:</p>
+    <input type="text" id="custom-tone-input" placeholder='לדוגמה: "ענה כמו פיראט"'
+           onkeydown="if(event.key==='Enter') applyCustomTone()"/>
+    <div class="modal-actions" style="margin-top:0.7rem;">
+      <button class="btn-primary" onclick="applyCustomTone()">החל</button>
+      <button class="btn-secondary" onclick="closeModal('modal-tone')">סגור</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: STATS ════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-stats">
+  <div class="modal">
+    <h3>📊 סטטיסטיקות שימוש</h3>
+    <div id="stats-content"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('modal-stats')">סגור</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: SUMMARIZE ═══════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-summarize">
+  <div class="modal">
+    <h3>📋 סיכום שיחה</h3>
+    <div id="summarize-content" class="summary-text">מייצר סיכום…</div>
+    <div class="modal-actions" style="margin-top:0.8rem;">
+      <button class="btn-secondary" onclick="closeModal('modal-summarize')">סגור</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: EXPORT ══════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-export">
+  <div class="modal">
+    <h3>📤 ייצוא שיחה</h3>
+    <div id="export-content" class="export-content"></div>
+    <div class="modal-actions" style="margin-top:0.8rem;">
+      <button class="btn-primary" onclick="downloadExport()">⬇️ הורד .txt</button>
+      <button class="btn-secondary" onclick="closeModal('modal-export')">סגור</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══ CONFIG ══════════════════════════════════════════════════════
+const API_BASE = "https://ai-telegram-bot-ikb0.onrender.com";
+
+// ══ State ═══════════════════════════════════════════════════════
+let sitePassword = "";
+let selectedModel = "auto";
+let isWaiting = false;
+
+// Chat system
+let chats = {};             // { "ראשי": [{role,content},...], ... }
+let activeChat = "ראשי";
+let undoStack = [];         // [history_snapshot, ...]
+let redoStack = [];
+
+// Memory & Tone
+let memories = [];          // ["עובדה 1", ...]
+let currentTone = { name: "רגיל", prompt: "" };
+
+// Stats
+let stats = { total: 0, models: {}, firstUse: null, lastUse: null };
+
+// File attach
+let attachedFile = null;    // { name, base64, mime }
+
+// ══ Storage (localStorage) ═══════════════════════════════════
+const STORAGE_KEY = "ai_chat_state_v2";
+const PW_KEY      = "ai_chat_pw";
+
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ chats, activeChat, memories, currentTone, stats }));
+  } catch {}
+}
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (s.chats)       chats       = s.chats;
+    if (s.activeChat)  activeChat  = s.activeChat;
+    if (s.memories)    memories    = s.memories;
+    if (s.currentTone) currentTone = s.currentTone;
+    if (s.stats)       stats       = s.stats;
+  } catch {}
+}
+function loadSavedPassword() { try { return localStorage.getItem(PW_KEY) || ""; } catch { return ""; } }
+function savePassword(pw)    { try { localStorage.setItem(PW_KEY, pw); }  catch {} }
+function clearSavedPassword(){ try { localStorage.removeItem(PW_KEY); }   catch {} }
+
+// ══ Init ════════════════════════════════════════════════════════
+window.addEventListener("DOMContentLoaded", () => {
+  loadState();
+  ensureDefaultChat();
+
+  const saved = loadSavedPassword();
+  if (saved) {
+    document.getElementById("pw-input").value = saved;
+    document.getElementById("err-msg").textContent = "סיסמה שמורה — לחץ כניסה";
+    document.getElementById("err-msg").style.color = "var(--accent)";
+  }
+  updateChatLabel();
+});
+
+function ensureDefaultChat() {
+  if (!chats["ראשי"]) chats["ראשי"] = [];
+  if (!chats[activeChat]) activeChat = "ראשי";
+}
+
+// ══ Auth ════════════════════════════════════════════════════════
+async function doLogin() {
+  const input  = document.getElementById("pw-input");
+  const errMsg = document.getElementById("err-msg");
+  const pw = input.value.trim();
+  if (!pw) { errMsg.textContent = "הכנס סיסמה"; return; }
+  errMsg.textContent = "";
+  input.classList.remove("error");
+  try {
+    const res = await fetch(`${API_BASE}/api/verify`, {
+      method: "POST",
+      headers: { "X-Site-Password": pw, "Content-Type": "application/json" }
+    });
+    if (res.ok) {
+      sitePassword = pw;
+      savePassword(pw);
+      input.value = "";
+      document.getElementById("auth-overlay").classList.add("hidden");
+      loadModels();
+      renderActiveChat();
+    } else {
+      input.classList.add("error");
+      errMsg.textContent = "סיסמה שגויה. נסה שוב.";
+      input.focus();
+    }
+  } catch {
+    errMsg.textContent = "שגיאת חיבור לשרת.";
+  }
+}
+
+function doLogout() {
+  sitePassword = "";
+  clearSavedPassword();
+  document.getElementById("auth-overlay").classList.remove("hidden");
+  document.getElementById("pw-input").value = "";
+  document.getElementById("err-msg").textContent = "";
+  document.getElementById("err-msg").style.color = "var(--danger)";
+}
+
+// ══ Models ══════════════════════════════════════════════════════
+async function loadModels() {
+  try {
+    const res    = await fetch(`${API_BASE}/api/models`);
+    const models = await res.json();
+    const bar    = document.querySelector(".model-bar");
+    const providers = [...new Set(models.map(m => m.provider))];
+    providers.forEach(prov => {
+      const group = models.filter(m => m.provider === prov);
+      const sep = document.createElement("span");
+      sep.style.cssText = "color:var(--border);font-size:0.9rem;padding:0 0.2rem;";
+      sep.textContent = "|";
+      bar.appendChild(sep);
+      group.forEach(m => {
+        const btn = document.createElement("button");
+        btn.className = "model-btn" + (m.blocked ? " blocked" : "");
+        btn.dataset.model = m.id;
+        btn.textContent = m.heb;
+        btn.title = m.id;
+        if (!m.blocked) btn.onclick = () => selectModel(m.id);
+        bar.appendChild(btn);
+      });
+    });
+  } catch {}
+}
+
+function selectModel(id) {
+  selectedModel = id;
+  document.querySelectorAll(".model-btn").forEach(b => b.classList.remove("active"));
+  const btn = document.querySelector(`.model-btn[data-model="${id}"]`);
+  if (btn) btn.classList.add("active");
+  document.getElementById("model-badge").textContent = id;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  🧠 AUTO MODEL SELECTION — מועתק מ-main.py במדויק
+// ══════════════════════════════════════════════════════════════════
+
+// --- ALL_MODELS (מתוך main.py) ---
+const ALL_MODELS = {
+  // ===== Groq Cloud =====
+  "llama-3.1-8b-instant":    { provider: "groq",     heb: "Llama 3.1 8B" },
+  "llama-3.3-70b-versatile": { provider: "groq",     heb: "Llama 3.3 70B" },
+  "llama-4-maverick":        { provider: "groq",     heb: "Llama 4 Maverick" },
+  "llama-4-scout":           { provider: "groq",     heb: "Llama 4 Scout" },
+  "kimi-k2":                 { provider: "groq",     heb: "Kimi K2" },
+  "gpt-oss-120b":            { provider: "groq",     heb: "GPT OSS 120B" },
+  "gpt-oss-20b":             { provider: "groq",     heb: "GPT OSS 20B" },
+  "qwen3-32b":               { provider: "groq",     heb: "Qwen 3 32B" },
+  "groq-compound":           { provider: "groq",     heb: "Groq Compound" },
+  "groq-compound-mini":      { provider: "groq",     heb: "Groq Compound Mini" },
+  // ===== Cerebras =====
+  "cerebras-llama3.1-8b":   { provider: "cerebras", heb: "Llama 3.1 8B (Cerebras)" },
+  "cerebras-gpt-oss-120b":  { provider: "cerebras", heb: "GPT OSS 120B (Cerebras)" },
+  "cerebras-qwen3-235b":    { provider: "cerebras", heb: "Qwen3 235B (Cerebras)" },
+  "cerebras-zai-glm-4.7":  { provider: "cerebras", heb: "GLM 4.7 (Cerebras)" },
+  // ===== Google Gemini =====
+  "gemini-2.5-flash-lite":  { provider: "gemini",   heb: "Gemini 2.5 Flash-Lite" },
+  "gemini-2.5-flash":       { provider: "gemini",   heb: "Gemini 2.5 Flash" },
+  "gemini-2.5-pro":         { provider: "gemini",   heb: "Gemini 2.5 Pro" },
+  "gemini-3-flash":         { provider: "gemini",   heb: "Gemini 3 Flash" },
+  "gemini-3-pro":           { provider: "gemini",   heb: "Gemini 3 Pro" },
+  // ===== Mistral =====
+  "mistral-large":   { provider: "mistral", heb: "Mistral Large 3" },
+  "mistral-medium":  { provider: "mistral", heb: "Mistral Medium 3.1" },
+  "mistral-small":   { provider: "mistral", heb: "Mistral Small 3.2" },
+  "ministral-14b":   { provider: "mistral", heb: "Ministral 3 14B" },
+  "ministral-8b":    { provider: "mistral", heb: "Ministral 3 8B" },
+  "ministral-3b":    { provider: "mistral", heb: "Ministral 3 3B" },
+  "magistral-medium":{ provider: "mistral", heb: "Magistral Medium 1.2" },
+  "magistral-small": { provider: "mistral", heb: "Magistral Small 1.2" },
+  "codestral":       { provider: "mistral", heb: "Codestral" },
+  "devstral":        { provider: "mistral", heb: "Devstral 2" },
+  "mistral-nemo":    { provider: "mistral", heb: "Mistral Nemo 12B" },
+};
+
+// --- MODEL_PROFILES (emoji + best_for) מתוך main.py ---
+const MODEL_PROFILES = {
+  "llama-3.1-8b-instant":    { emoji: "⚡", best_for: "שיחות יומיומיות, שאלות פשוטות, סיכומים קצרים" },
+  "llama-3.3-70b-versatile": { emoji: "✍️", best_for: "כתיבה, עברית, ניתוח טקסט, תרגום, שאלות כלליות" },
+  "llama-4-scout":           { emoji: "📄", best_for: "מסמכים ארוכים מאוד, ניתוח קוד בסקייל, עיבוד קבצים ענקיים" },
+  "llama-4-maverick":        { emoji: "🌍", best_for: "רב-לשוניות, הנמקה מתקדמת, שאלות בשפות זרות, ידע כללי רחב" },
+  "kimi-k2":                 { emoji: "💻", best_for: "קוד, תכנות, debugging, הנדסת תוכנה, אוטומציה" },
+  "qwen3-32b":               { emoji: "🔢", best_for: "מתמטיקה, STEM, לוגיקה, חישובים, פיזיקה, כימיה" },
+  "gpt-oss-20b":             { emoji: "🎯", best_for: "שאלות בינוניות, תגובות מהירות ומדויקות" },
+  "gpt-oss-120b":            { emoji: "🧠", best_for: "מחקר עמוק, reasoning מורכב, פילוסופיה, השוואות, ניתוח אסטרטגי" },
+  "groq-compound-mini":      { emoji: "🔍", best_for: "שאלות על אירועים עדכניים, מחירים, חדשות, מזג אוויר" },
+  "groq-compound":           { emoji: "🔬", best_for: "מחקר מרובה מקורות, ניתוח עם ריצת קוד, שאלות שדורשות כמה חיפושים" },
+  "cerebras-llama3.1-8b":   { emoji: "⚡", best_for: "שאלות קצרות וישירות, שיחות מהירות, chatbot בזמן אמת" },
+  "cerebras-gpt-oss-120b":  { emoji: "🚀", best_for: "reasoning מתקדם, קוד, מתמטיקה, מחקר עמוק — ומהיר פי 15" },
+  "cerebras-qwen3-235b":    { emoji: "🌟", best_for: "ידע כללי, ריבוי לשונות, STEM, כתיבה, הנמקה — הכי חכם ב-Cerebras" },
+  "cerebras-zai-glm-4.7":  { emoji: "🤖", best_for: "משימות סוכן, קוד מורכב, SWE-bench, יכולות כלים מתקדמות" },
+  "gemini-2.5-flash-lite":  { emoji: "💡", best_for: "batch גדול, עיבוד מסמכים ארוכים, שאלות פשוטות, מיון" },
+  "gemini-2.5-flash":       { emoji: "⚡", best_for: "שאלות כלליות, כתיבה, קוד, תמונות, מסמכים, ריבוי לשונות" },
+  "gemini-2.5-pro":         { emoji: "💎", best_for: "reasoning מורכב, קוד ארוך, ניתוח מסמכים ענקיים, STEM מתקדם" },
+  "gemini-3-flash":         { emoji: "🌠", best_for: "שיחות מהירות, כתיבה, ידע כללי — חזק כמו Pro דורות קודמים" },
+  "gemini-3-pro":           { emoji: "🏆", best_for: "המשימות הכי קשות: reasoning מולטי-שלבי, vibe coding, agentic workflows" },
+  "mistral-large":          { emoji: "🌊", best_for: "כתיבה מורכבת, ניתוח עמוק, ריבוי לשונות, ידע כללי" },
+  "mistral-medium":         { emoji: "🖼️", best_for: "מולטימודאלי, תמונות + טקסט, ניתוח מסמכים, RAG" },
+  "mistral-small":          { emoji: "⚡", best_for: "שיחות יומיומיות, כתיבה מהירה, עיבוד טקסט, batch" },
+  "ministral-14b":          { emoji: "📋", best_for: "מסמכים, vision, הסברים, תרגום, שאלות בינוניות–מורכבות" },
+  "ministral-8b":           { emoji: "🚀", best_for: "שאלות מהירות, עיבוד טקסט, תגובות יומיומיות" },
+  "ministral-3b":           { emoji: "💨", best_for: "edge deployment, batch גדול, latency מינימלי" },
+  "magistral-medium":       { emoji: "🧮", best_for: "מתמטיקה, לוגיקה, הנמקה מורכבת, הוכחות, STEM מתקדם" },
+  "magistral-small":        { emoji: "🔮", best_for: "reasoning בינוני, מתמטיקה שוטפת, בעיות לוגיקה" },
+  "codestral":              { emoji: "💻", best_for: "השלמת קוד (FIM), code completion ב-IDE, developer tools" },
+  "devstral":               { emoji: "🛠️", best_for: "סוכן קוד אוטונומי, SWE-agent, ניווט codebase" },
+  "mistral-nemo":           { emoji: "🌍", best_for: "ריבוי לשונות, עברית, ערבית, שפות אירופאיות, תרגום" },
+};
+
+// --- PROVIDER_BLOCK_CONFIG (מתוך main.py) ---
+// scope "model"    = חוסם רק את המודל הספציפי
+// scope "provider" = חוסם את כל הספק
+const PROVIDER_BLOCK_CONFIG = {
+  "groq":     { scope: "model",    duration_seconds: 60 },
+  "mistral":  { scope: "provider", duration_seconds: 60 },
+  "cerebras": { scope: "model",    duration_seconds: 60 },
+  "gemini":   { scope: "provider", duration_seconds: 60 },
+};
+
+// --- PRIORITY_ORDER (מתוך main.py) ---
+const PRIORITY_ORDER = [
+  "groq-compound",
+  "groq-compound-mini",
+  "kimi-k2",
+  "qwen3-32b",
+  "llama-4-maverick",
+  "llama-4-scout",
+  "gpt-oss-120b",
+  "gpt-oss-20b",
+  "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant",
+  // Cerebras — גיבוי מהיר
+  "cerebras-qwen3-235b",
+  "cerebras-gpt-oss-120b",
+  "cerebras-zai-glm-4.7",
+  "cerebras-llama3.1-8b",
+  // Gemini — גיבוי עם 1M context
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-pro",
+  "gemini-3-flash",
+  "gemini-3-pro",
+  // Mistral — גיבוי איכותי
+  "mistral-large",
+  "mistral-medium",
+  "magistral-medium",
+  "codestral",
+  "devstral",
+  "mistral-small",
+  "mistral-nemo",
+];
+
+// --- Keyword map לבחירה מיידית (מתוך main.py) ---
+const KW_MAP = {
+  "groq-compound-mini": [
+    "מחיר", "price", "היום", "today", "עכשיו", "now", "חדשות", "news",
+    "מזג אוויר", "weather", "מניה", "stock", "שער חליפין", "exchange rate",
+    "אירוע", "event", "שעות פתיחה", "opening hours", "latest", "recent",
+  ],
+  "groq-compound": [
+    "חפש באינטרנט", "search the web", "מחקר עדכני", "recent research",
+    "השווה בין מוצרים", "compare products", "מה קורה עם", "what happened with",
+    "חדשות על", "news about", "עדכון על", "update on",
+  ],
+  "kimi-k2": [
+    "python", "javascript", "typescript", "java", "c++", "rust", "go", "kotlin", "swift",
+    "html", "css", "sql", "bash", "shell", "dockerfile", "kubernetes", "react", "node",
+    "קוד", "code", "bug", "debug", "script", "פונקצי", "function", "class", "api",
+    "תכנות", "program", "develop", "git", "endpoint", "framework", "אלגוריתם", "compiler",
+  ],
+  "qwen3-32b": [
+    "integral", "derivative", "matrix", "eigenvalue", "differential", "theorem",
+    "אינטגרל", "גזירה", "מטריצה", "משפט", "הוכחה", "proof",
+    "trigonometry", "calculus", "algebra", "geometry", "statistics", "probability",
+    "הסתברות", "סטטיסטיק", "חשבון דיפרנציאלי", "חשב ", "חשבי ", "כמה עולה",
+  ],
+  "llama-4-scout": [
+    "מסמך ארוך", "long document", "קובץ ענק", "huge file", "כל הקוד", "entire codebase",
+    "עשרות עמודים", "hundreds of pages", "ספר שלם", "full book",
+  ],
+};
+
+// --- routing table (מתוך main.py) ---
+const CATEGORY_ROUTING = {
+  "INTERNET":     "groq-compound-mini",
+  "LONGDOC":      "llama-4-scout",
+  "CODE":         "kimi-k2",
+  "MATH":         "qwen3-32b",
+  "MULTILINGUAL": "llama-4-maverick",
+  "RESEARCH":     "gpt-oss-120b",
+  "FRONTIER":     "cerebras-gpt-oss-120b",
+  "WRITING":      "llama-3.3-70b-versatile",
+  "SIMPLE":       "llama-3.1-8b-instant",
+};
+
+// --- Blocked models state (localStorage) ---
+// מבנה: { "model-name": timestamp_unblock, "_provider_groq": timestamp_unblock, ... }
+// timestamp = unix ms, -1 = חסום לתמיד
+const BLOCKED_KEY = "ai_blocked_models_v1";
+
+function loadBlocked() {
+  try { return JSON.parse(localStorage.getItem(BLOCKED_KEY) || "{}"); } catch { return {}; }
+}
+function saveBlocked(data) {
+  try { localStorage.setItem(BLOCKED_KEY, JSON.stringify(data)); } catch {}
+}
+function cleanExpiredBlocks(blocked) {
+  const now = Date.now();
+  return Object.fromEntries(
+    Object.entries(blocked).filter(([, v]) => v === -1 || v > now)
+  );
+}
+
+/** מחזיר { blocked: bool, reason: string } — מקביל ל-is_model_blocked בפייתון */
+function isModelBlocked(modelName) {
+  let blocked = cleanExpiredBlocks(loadBlocked());
+  const now = Date.now();
+
+  if (modelName in blocked) {
+    const val = blocked[modelName];
+    if (val === -1) return { blocked: true, reason: "חסום ידנית" };
+    const remaining = Math.max(1, Math.round((val - now) / 1000));
+    return { blocked: true, reason: `חסום עוד ${remaining}ש׳` };
+  }
+
+  const provider = (ALL_MODELS[modelName] || {}).provider || "";
+  const pkey = `_provider_${provider}`;
+  if (pkey in blocked) {
+    const val = blocked[pkey];
+    if (val === -1) return { blocked: true, reason: `ספק ${provider} חסום ידנית` };
+    const remaining = Math.max(1, Math.round((val - now) / 1000));
+    return { blocked: true, reason: `ספק ${provider} חסום עוד ${remaining}ש׳` };
+  }
+
+  return { blocked: false, reason: "" };
+}
+
+/** חוסם מודל/ספק לפי PROVIDER_BLOCK_CONFIG — מקביל ל-block_model_by_name בפייתון */
+function blockModel(modelName) {
+  const info     = ALL_MODELS[modelName] || {};
+  const provider = info.provider || "groq";
+  const cfg      = PROVIDER_BLOCK_CONFIG[provider] || { scope: "model", duration_seconds: 60 };
+  const unblockAt = Date.now() + cfg.duration_seconds * 1000;
+
+  let blocked = cleanExpiredBlocks(loadBlocked());
+  const scopeKey = cfg.scope === "provider" ? `_provider_${provider}` : modelName;
+  blocked[scopeKey] = unblockAt;
+  saveBlocked(blocked);
+
+  return { scope: cfg.scope, provider, model: modelName, duration: cfg.duration_seconds, key: scopeKey };
+}
+
+/**
+ * select_model_by_keywords — מקביל לפונקציה בפייתון.
+ * שלב 1: keyword matching מיידי
+ * שלב 2: AI classification דרך ה-API (llama-3.1-8b-instant)
+ * שלב 3: routing + fallback לפי PRIORITY_ORDER
+ * מחזיר { model, emoji, heb, category, method }
+ */
+async function selectModelAuto(text) {
+  const textLower = text.toLowerCase();
+
+  // ── שלב 1: keyword matching ────────────────────────────────
+  for (const [modelKey, keywords] of Object.entries(KW_MAP)) {
+    if (isModelBlocked(modelKey).blocked) continue;
+    if (keywords.some(kw => textLower.includes(kw))) {
+      const profile = MODEL_PROFILES[modelKey] || {};
+      return {
+        model: modelKey,
+        emoji: profile.emoji || "🤖",
+        heb: (ALL_MODELS[modelKey] || {}).heb || modelKey,
+        category: "KEYWORD",
+        method: "keyword",
+      };
+    }
+  }
+
+  // ── שלב 2: AI classification ────────────────────────────────
+  const classifyPrompt = `You are a routing assistant. Classify this question into ONE category.
+
+INTERNET: needs current info — news, prices, weather, recent events, today's date facts
+LONGDOC: analyzing very long documents, entire codebases, books (10M+ token context needed)
+CODE: programming, debugging, software engineering, scripts, databases, algorithms
+MATH: math, calculations, formulas, STEM, physics, chemistry, biology, statistics
+MULTILINGUAL: question in non-Hebrew/English language, OR about language/translation tasks
+RESEARCH: deep multi-step analysis, philosophy, strategy, academic, complex comparisons
+FRONTIER: extremely complex reasoning, frontier-level task, needs best possible model
+WRITING: writing, editing, summarizing, explaining, Hebrew text tasks
+SIMPLE: greeting, casual chat, simple yes/no, short factual question
+
+Question: "${text}"
+
+Reply with ONLY one word.`;
+
+  let category = "WRITING"; // ברירת מחדל
+  try {
+    const res = await fetch(`${API_BASE}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: classifyPrompt }],
+        model: "llama-3.1-8b-instant",   // classifier קל, כמו בפייתון
+        _classify: true,                   // hint לשרת — לא חובה
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const raw = (data.reply || "").trim().toUpperCase().split(/\s/)[0];
+      if (raw && CATEGORY_ROUTING[raw]) category = raw;
+    }
+  } catch { /* fallback to WRITING */ }
+
+  // ── שלב 3: routing + fallback ───────────────────────────────
+  let chosen = CATEGORY_ROUTING[category] || "llama-3.3-70b-versatile";
+
+  if (!isModelBlocked(chosen).blocked) {
+    const profile = MODEL_PROFILES[chosen] || {};
+    return {
+      model: chosen,
+      emoji: profile.emoji || "🤖",
+      heb: (ALL_MODELS[chosen] || {}).heb || chosen,
+      category,
+      method: "classify",
+    };
+  }
+
+  // fallback לפי PRIORITY_ORDER
+  for (const fallback of PRIORITY_ORDER) {
+    if (!isModelBlocked(fallback).blocked && ALL_MODELS[fallback]) {
+      const profile = MODEL_PROFILES[fallback] || {};
+      return {
+        model: fallback,
+        emoji: profile.emoji || "🤖",
+        heb: (ALL_MODELS[fallback] || {}).heb || fallback,
+        category,
+        method: "fallback",
+      };
+    }
+  }
+
+  // אין ברירה — מחזיר את chosen גם אם חסום
+  const profile = MODEL_PROFILES[chosen] || {};
+  return {
+    model: chosen,
+    emoji: profile.emoji || "🤖",
+    heb: (ALL_MODELS[chosen] || {}).heb || chosen,
+    category,
+    method: "forced",
+  };
+}
+
+// ══ Chat helpers ════════════════════════════════════════════════
+function getHistory() { return chats[activeChat] || []; }
+function setHistory(h) { chats[activeChat] = h; saveState(); }
+
+function updateChatLabel() {
+  document.getElementById("chat-name-display").textContent = activeChat;
+}
+
+function pushUndo() {
+  const h = getHistory();
+  undoStack.push(h.map(m => ({...m})));
+  if (undoStack.length > 20) undoStack.shift();
+  redoStack = [];
+}
+
+// ══ Render chat ═════════════════════════════════════════════════
+function renderActiveChat() {
+  const msgs = document.getElementById("messages");
+  msgs.innerHTML = "";
+  const history = getHistory();
+  if (history.length === 0) {
+    msgs.innerHTML = `<div class="msg bot" id="welcome-msg">
+      <div class="msg-avatar">🤖</div>
+      <div><div class="msg-bubble">שיחה חדשה — במה אוכל לעזור? 😊</div></div>
+    </div>`;
+    return;
+  }
+  history.forEach(m => {
+    const div = document.createElement("div");
+    div.className = `msg ${m.role === "user" ? "user" : "bot"}`;
+    div.innerHTML = `
+      <div class="msg-avatar">${m.role === "user" ? "👤" : "🤖"}</div>
+      <div><div class="msg-bubble">${formatText(typeof m.content === "string" ? m.content : JSON.stringify(m.content))}</div></div>`;
+    msgs.appendChild(div);
+  });
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// ══ Markdown formatting ════════════════════════════════════════
+function formatText(text) {
+  return text
+    .replace(/```([\s\S]*?)```/g, (_, c) => `<pre><code>${escHtml(c.trim())}</code></pre>`)
+    .replace(/`([^`]+)`/g, (_, c) => `<code>${escHtml(c)}</code>`)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\n/g, "<br/>");
+}
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function addMessage(role, content, meta) {
+  const msgs = document.getElementById("messages");
+  document.getElementById("welcome-msg")?.remove();
+  const div = document.createElement("div");
+  div.className = `msg ${role}`;
+  const metaHtml = meta ? `<div class="msg-meta">${meta}</div>` : "";
+  div.innerHTML = `
+    <div class="msg-avatar">${role === "user" ? "👤" : "🤖"}</div>
+    <div>
+      <div class="msg-bubble">${formatText(content)}</div>
+      ${metaHtml}
+    </div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+function addTypingIndicator() {
+  const msgs = document.getElementById("messages");
+  const div = document.createElement("div");
+  div.className = "msg bot"; div.id = "typing";
+  div.innerHTML = `<div class="msg-avatar">🤖</div>
+    <div><div class="msg-bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+function removeTypingIndicator() { document.getElementById("typing")?.remove(); }
+
+// ══ Send message ═══════════════════════════════════════════════
+async function sendMessage() {
+  if (isWaiting) return;
+  const input = document.getElementById("input");
+  const text  = input.value.trim();
+  if (!text && !attachedFile) return;
+
+  input.value = ""; input.style.height = ""; input.style.height = "46px";
+
+  pushUndo();
+
+  const displayText = text || `[📎 ${attachedFile?.name}]`;
+  addMessage("user", displayText);
+
+  const history = getHistory();
+  history.push({ role: "user", content: text || displayText });
+  setHistory(history);
+
+  isWaiting = true;
+  document.getElementById("send-btn").disabled = true;
+  addTypingIndicator();
+
+  try {
+    // ── בחירה אוטומטית של מודל ─────────────────────────────
+    let modelToUse = selectedModel;
+    let autoInfo   = null;   // { model, emoji, heb, category, method }
+
+    if (selectedModel === "auto" && text) {
+      // עדכן badge בזמן חיפוש
+      document.getElementById("model-badge").textContent = "🔍 בוחר מודל…";
+      autoInfo   = await selectModelAuto(text);
+      modelToUse = autoInfo.model;
+      document.getElementById("model-badge").textContent = `⚡ ${autoInfo.heb}`;
+    }
+    // ────────────────────────────────────────────────────────
+
+    const body = { messages: history, model: modelToUse };
+    if (attachedFile) {
+      body.file = { name: attachedFile.name, data: attachedFile.base64, mime: attachedFile.mime };
+      // תמיד שלח תמונות ל-llama-4-maverick (כמו ב-handle_media בפייתון)
+      if (attachedFile.mime.startsWith("image/") && selectedModel === "auto") {
+        body.model = "llama-4-maverick";
+        modelToUse = "llama-4-maverick";
+      }
+    }
+
+    const res = await fetch(`${API_BASE}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
+      body: JSON.stringify(body)
+    });
+
+    removeTypingIndicator();
+    clearFile();
+
+    if (res.status === 401) {
+      sitePassword = "";
+      document.getElementById("model-badge").textContent = selectedModel;
+      document.getElementById("auth-overlay").classList.remove("hidden");
+      return;
+    }
+
+    const data = await res.json();
+
+    if (data.error) {
+      // ── חסימת מודל אוטומטית אם rate-limit / 429 ──────────
+      if (data.error.includes("429") || data.error.includes("rate limit") ||
+          data.error.includes("קרדיטים") || data.error.includes("limit")) {
+        if (modelToUse !== "auto") {
+          const blockInfo = blockModel(modelToUse);
+          const scopeMsg  = blockInfo.scope === "provider"
+            ? `ספק ${blockInfo.provider} נחסם ל-${blockInfo.duration}ש׳`
+            : `${modelToUse} נחסם ל-${blockInfo.duration}ש׳`;
+          showToast(`⛔ ${scopeMsg}`, "error");
+        }
+      }
+      addMessage("bot", `❌ ${data.error}`);
+      // שחזר badge
+      document.getElementById("model-badge").textContent = selectedModel === "auto"
+        ? "auto" : selectedModel;
+
+    } else {
+      // ── הצלחה ───────────────────────────────────────────────
+      const actualModel = data.model_used || modelToUse;
+      const profile     = MODEL_PROFILES[actualModel] || {};
+      const emoji       = profile.emoji || "🤖";
+      const heb         = (ALL_MODELS[actualModel] || {}).heb || actualModel;
+
+      let meta = null;
+      if (selectedModel === "auto" && autoInfo) {
+        // הצג מה בחרנו ולמה
+        const methodLabel = {
+          keyword:  "keyword",
+          classify: autoInfo.category,
+          fallback: "fallback",
+          forced:   "forced",
+        }[autoInfo.method] || autoInfo.method;
+        meta = `${emoji} ${heb} · AUTO→${methodLabel}`;
+      } else if (data.model_used && data.model_used !== selectedModel) {
+        meta = `${emoji} ${heb} (${data.model_used})`;
+      }
+
+      addMessage("bot", data.reply, meta);
+      history.push({ role: "assistant", content: data.reply });
+      if (history.length > 40) history.splice(0, history.length - 40);
+      setHistory(history);
+
+      // עדכן badge
+      if (selectedModel === "auto") {
+        document.getElementById("model-badge").textContent = `auto · ${emoji}${heb}`;
+      }
+
+      // שמור מודל אחרון לשימוש ב-doReport
+      window._lastUsedModel = actualModel;
+
+      // Track stats
+      stats.total++;
+      stats.models[actualModel] = (stats.models[actualModel] || 0) + 1;
+      const nowStr = new Date().toLocaleString("he-IL");
+      if (!stats.firstUse) stats.firstUse = nowStr;
+      stats.lastUse = nowStr;
+      saveState();
+    }
+  } catch {
+    removeTypingIndicator();
+    addMessage("bot", "❌ שגיאת חיבור לשרת.");
+    document.getElementById("model-badge").textContent = selectedModel === "auto" ? "auto" : selectedModel;
+  } finally {
+    isWaiting = false;
+    document.getElementById("send-btn").disabled = false;
+    input.focus();
+  }
+}
+
+// ══ Undo / Redo ════════════════════════════════════════════════
+function doUndo() {
+  const history = getHistory();
+  if (history.length === 0) { showToast("⚠️ אין מה לבטל", "error"); return; }
+  redoStack.push(history.map(m => ({...m})));
+  // Remove last user+assistant pair
+  const newH = [...history];
+  if (newH.length > 0 && newH[newH.length-1].role === "assistant") newH.pop();
+  if (newH.length > 0 && newH[newH.length-1].role === "user")      newH.pop();
+  setHistory(newH);
+  renderActiveChat();
+  showToast("↩️ בוטל", "success");
+}
+
+function doRedo() {
+  if (redoStack.length === 0) { showToast("⚠️ אין מה לשחזר", "error"); return; }
+  const restored = redoStack.pop();
+  setHistory(restored);
+  renderActiveChat();
+  showToast("↪️ שוחזר", "success");
+}
+
+// ══ Retry ══════════════════════════════════════════════════════
+async function doRetry() {
+  if (isWaiting) return;
+  const history = getHistory();
+  // Find last user message
+  const lastUser = [...history].reverse().find(m => m.role === "user");
+  if (!lastUser) { showToast("⚠️ אין הודעה לשליחה מחדש", "error"); return; }
+
+  // Remove last assistant response if exists
+  pushUndo();
+  const newH = [...history];
+  if (newH.length > 0 && newH[newH.length-1].role === "assistant") newH.pop();
+  setHistory(newH);
+  renderActiveChat();
+
+  // Resend
+  document.getElementById("input").value = "";
+  isWaiting = true;
+  document.getElementById("send-btn").disabled = true;
+  addTypingIndicator();
+
+  try {
+    // בחירה אוטומטית גם ב-retry
+    let modelToUse = selectedModel;
+    let autoInfo   = null;
+    const lastUserMsg = [...newH].reverse().find(m => m.role === "user");
+    if (selectedModel === "auto" && lastUserMsg) {
+      document.getElementById("model-badge").textContent = "🔍 בוחר מודל…";
+      autoInfo   = await selectModelAuto(
+        typeof lastUserMsg.content === "string" ? lastUserMsg.content : ""
+      );
+      modelToUse = autoInfo.model;
+      document.getElementById("model-badge").textContent = `⚡ ${autoInfo.heb}`;
+    }
+
+    const res = await fetch(`${API_BASE}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
+      body: JSON.stringify({ messages: newH, model: modelToUse })
+    });
+    removeTypingIndicator();
+    if (res.status === 401) { sitePassword = ""; document.getElementById("auth-overlay").classList.remove("hidden"); return; }
+    const data = await res.json();
+    if (data.error) {
+      if (data.error.includes("429") || data.error.includes("rate limit")) {
+        blockModel(modelToUse);
+        showToast(`⛔ ${modelToUse} נחסם`, "error");
+      }
+      addMessage("bot", `❌ ${data.error}`);
+      document.getElementById("model-badge").textContent = selectedModel === "auto" ? "auto" : selectedModel;
+    } else {
+      const actualModel = data.model_used || modelToUse;
+      const profile = MODEL_PROFILES[actualModel] || {};
+      const emoji   = profile.emoji || "🤖";
+      const heb     = (ALL_MODELS[actualModel] || {}).heb || actualModel;
+      let meta = null;
+      if (selectedModel === "auto" && autoInfo) {
+        meta = `${emoji} ${heb} · AUTO→${autoInfo.method}`;
+        document.getElementById("model-badge").textContent = `auto · ${emoji}${heb}`;
+      } else if (data.model_used && data.model_used !== selectedModel) {
+        meta = `${emoji} ${heb} (${data.model_used})`;
+      }
+      addMessage("bot", data.reply, meta);
+      newH.push({ role: "assistant", content: data.reply });
+      setHistory(newH);
+    }
+  } catch {
+    removeTypingIndicator();
+    addMessage("bot", "❌ שגיאת חיבור לשרת.");
+  } finally {
+    isWaiting = false;
+    document.getElementById("send-btn").disabled = false;
+  }
+}
+
+// ══ Summarize ══════════════════════════════════════════════════
+async function doSummarize() {
+  const history = getHistory();
+  if (history.filter(m => m.role === "user").length < 2) {
+    showToast("⚠️ אין מספיק הודעות לסיכום", "error"); return;
+  }
+
+  openModal("modal-summarize");
+  document.getElementById("summarize-content").textContent = "מייצר סיכום…";
+
+  const convoText = history.map(m => {
+    const role    = m.role === "user" ? "👤 משתמש" : "🤖 בוט";
+    const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+    return `${role}: ${content}`;
+  }).join("\n\n");
+
+  const prompt = `סכם את השיחה הבאה בעברית בצורה תמציתית וברורה. כלול: נושאים עיקריים שנדונו, החלטות או מסקנות אם יש, ונקודות חשובות. אל תוסיף מידע שלא מופיע בשיחה.\n\nהשיחה:\n${convoText}`;
+
+  try {
+    const res  = await fetch(`${API_BASE}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
+      body: JSON.stringify({ messages: [{ role: "user", content: prompt }], model: selectedModel })
+    });
+    const data = await res.json();
+    document.getElementById("summarize-content").textContent = data.reply || data.error || "שגיאה";
+  } catch {
+    document.getElementById("summarize-content").textContent = "❌ שגיאת חיבור";
+  }
+}
+
+// ══ Export ═════════════════════════════════════════════════════
+let _exportText = "";
+function doExport() {
+  const history = getHistory();
+  if (history.length === 0) { showToast("⚠️ הצ׳אט ריק", "error"); return; }
+
+  const now = new Date().toLocaleString("he-IL");
+  const userCount = history.filter(m => m.role === "user").length;
+  let lines = [
+    `ייצוא צ׳אט: ${activeChat}`,
+    `תאריך: ${now}`,
+    `הודעות: ${userCount}`,
+    "=".repeat(40), ""
+  ];
+  history.forEach(m => {
+    const role    = m.role === "user" ? "👤 אתה" : "🤖 בוט";
+    const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+    lines.push(`${role}:\n${content}\n`);
+    lines.push("-".repeat(30), "");
+  });
+
+  _exportText = lines.join("\n");
+  document.getElementById("export-content").textContent = _exportText;
+  openModal("modal-export");
+}
+
+function downloadExport() {
+  const blob = new Blob([_exportText], { type: "text/plain;charset=utf-8" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  const safeChat = activeChat.replace(/[^a-zA-Zא-ת0-9 _-]/g, "_");
+  const date     = new Date().toISOString().slice(0,10);
+  a.href     = url;
+  a.download = `chat_${safeChat}_${date}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("✅ קובץ הורד", "success");
+}
+
+// ══ Chats management ════════════════════════════════════════════
+function openChatsModal() {
+  renderChatList();
+  openModal("modal-chats");
+}
+
+function renderChatList() {
+  const list = document.getElementById("chat-list");
+  list.innerHTML = "";
+  const chatNames = Object.keys(chats);
+  if (chatNames.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;padding:0.5rem;">אין צ׳אטים</div>';
+    return;
+  }
+  chatNames.forEach(name => {
+    const msgCount = (chats[name] || []).filter(m => m.role === "user").length;
+    const isActive = name === activeChat;
+    const item = document.createElement("div");
+    item.className = "chat-item" + (isActive ? " active" : "");
+    item.innerHTML = `
+      <span>${name === "ראשי" ? "🏠" : "💬"}</span>
+      <span class="chat-item-name">${name}</span>
+      <span class="chat-item-count">${msgCount} הודעות</span>
+      ${name !== "ראשי" ? `<button class="chat-item-del" onclick="promptDeleteChat('${escHtml(name)}', event)" title="מחק">🗑</button>` : ""}
+    `;
+    item.onclick = (e) => {
+      if (e.target.classList.contains("chat-item-del")) return;
+      switchChat(name);
+    };
+    list.appendChild(item);
+  });
+}
+
+function switchChat(name) {
+  if (!chats[name]) chats[name] = [];
+  activeChat = name;
+  undoStack = []; redoStack = [];
+  saveState();
+  updateChatLabel();
+  renderActiveChat();
+  closeModal("modal-chats");
+  showToast(`💬 עברת ל: ${name}`, "success");
+}
+
+function promptNewChat() {
+  closeModal("modal-chats");
+  openModal("modal-newchat");
+  setTimeout(() => document.getElementById("newchat-name").focus(), 100);
+}
+
+function confirmNewChat() {
+  const name = document.getElementById("newchat-name").value.trim();
+  if (!name) { showToast("❌ הכנס שם", "error"); return; }
+  if (chats[name] !== undefined) { showToast("❌ צ׳אט בשם זה כבר קיים", "error"); return; }
+  chats[name] = [];
+  activeChat = name;
+  undoStack = []; redoStack = [];
+  saveState();
+  updateChatLabel();
+  renderActiveChat();
+  closeModal("modal-newchat");
+  document.getElementById("newchat-name").value = "";
+  showToast(`✅ נוצר: ${name}`, "success");
+}
+
+let _pendingDeleteChat = null;
+function promptDeleteChat(name, e) {
+  e.stopPropagation();
+  _pendingDeleteChat = name;
+  document.getElementById("delchat-msg").textContent = `האם למחוק את הצ׳אט "${name}"?`;
+  closeModal("modal-chats");
+  openModal("modal-delchat");
+}
+
+function confirmDeleteChat() {
+  const name = _pendingDeleteChat;
+  if (!name) return;
+  if (name === "ראשי") {
+    chats["ראשי"] = [];
+    showToast("🗑 צ׳אט 'ראשי' נוקה", "success");
+  } else {
+    delete chats[name];
+    if (activeChat === name) {
+      activeChat = "ראשי";
+      if (!chats["ראשי"]) chats["ראשי"] = [];
+    }
+    showToast(`🗑 נמחק: ${name}`, "success");
+  }
+  saveState();
+  updateChatLabel();
+  renderActiveChat();
+  closeModal("modal-delchat");
+  _pendingDeleteChat = null;
+}
+
+// ══ Memory ══════════════════════════════════════════════════════
+function openMemoryModal() {
+  renderMemoryList();
+  openModal("modal-memory");
+  setTimeout(() => document.getElementById("new-memory-input").focus(), 100);
+}
+
+function renderMemoryList() {
+  const list = document.getElementById("memory-list");
+  list.innerHTML = "";
+  if (memories.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;padding:0.5rem;">הזיכרון ריק</div>';
+    return;
+  }
+  memories.forEach((m, i) => {
+    const item = document.createElement("div");
+    item.className = "memory-item";
+    item.innerHTML = `
+      <span style="color:var(--muted);font-size:0.75rem;min-width:1.2rem;">${i+1}.</span>
+      <span class="memory-text">${escHtml(m)}</span>
+      <button class="memory-del" onclick="deleteMemory(${i})" title="מחק">🗑</button>
+    `;
+    list.appendChild(item);
+  });
+  document.getElementById("btn-clear-all-memory").style.display = memories.length > 0 ? "" : "none";
+}
+
+function addMemory() {
+  const input = document.getElementById("new-memory-input");
+  const fact  = input.value.trim();
+  if (!fact) { showToast("❌ הכנס עובדה", "error"); return; }
+  if (memories.map(m => m.toLowerCase()).includes(fact.toLowerCase())) {
+    showToast("ℹ️ עובדה זו כבר שמורה", "error"); return;
+  }
+  memories.push(fact);
+  saveState();
+  input.value = "";
+  renderMemoryList();
+  showToast("🧠 נשמר בזיכרון", "success");
+}
+
+function deleteMemory(idx) {
+  memories.splice(idx, 1);
+  saveState();
+  renderMemoryList();
+  showToast("🗑 נמחק", "success");
+}
+
+function clearAllMemory() {
+  if (memories.length === 0) return;
+  memories = [];
+  saveState();
+  renderMemoryList();
+  showToast("🗑 כל הזיכרון נמחק", "success");
+}
+
+// ══ Tone ════════════════════════════════════════════════════════
+const TONES = {
+  "רגיל":    { desc: "ברירת מחדל — מאוזן",          prompt: "" },
+  "קצר":     { desc: "תשובות קצרות וענייניות",       prompt: "ענה בקצרה ובתמציתיות. אל תרחיב מעבר לנחוץ." },
+  "מפורט":   { desc: "הסברים מעמיקים ומלאים",        prompt: "הסבר בפירוט רב, כלול דוגמאות והקשר." },
+  "ידידותי": { desc: "סגנון חם ונעים",               prompt: "ענה בסגנון חם, ידידותי ועידוד. השתמש בשפה פשוטה." },
+  "רשמי":    { desc: "שפה מקצועית ורשמית",           prompt: "ענה בשפה מקצועית ורשמית. הימנע מביטויים מזדמנים." },
+  "הומור":   { desc: "תשובות עם נגיעת הומור",        prompt: "הוסף נגיעת הומור קלה לתשובות מבלי לפגוע באיכות." },
+};
+
+function openToneModal() {
+  const list = document.getElementById("tone-list");
+  list.innerHTML = "";
+  Object.entries(TONES).forEach(([name, info]) => {
+    const item = document.createElement("div");
+    item.className = "tone-item" + (currentTone.name === name ? " active" : "");
+    item.innerHTML = `<div>${name}</div><div class="tone-desc">${info.desc}</div>`;
+    item.onclick = () => applyTone(name, info.prompt);
+    list.appendChild(item);
+  });
+  document.getElementById("custom-tone-input").value = "";
+  openModal("modal-tone");
+}
+
+function applyTone(name, prompt) {
+  currentTone = { name, prompt };
+  saveState();
+  closeModal("modal-tone");
+  showToast(`🎨 סגנון: ${name}`, "success");
+}
+
+function applyCustomTone() {
+  const val = document.getElementById("custom-tone-input").value.trim();
+  if (!val) { showToast("❌ הכנס סגנון", "error"); return; }
+  const name = val.length > 30 ? val.slice(0, 30) + "…" : val;
+  applyTone(name, val);
+}
+
+// ══ Stats ════════════════════════════════════════════════════════
+function openStatsModal() {
+  const el = document.getElementById("stats-content");
+  const total = stats.total || 0;
+  if (total === 0) {
+    el.innerHTML = '<p style="color:var(--muted);text-align:center;">עדיין אין נתוני שימוש</p>';
+  } else {
+    const models = stats.models || {};
+    const sortedModels = Object.entries(models).sort((a,b) => b[1]-a[1]);
+    let html = `<div class="stats-grid">
+      <div class="stat-card"><div class="stat-value">${total}</div><div class="stat-label">📨 הודעות</div></div>
+      <div class="stat-card"><div class="stat-value">${Object.keys(models).length}</div><div class="stat-label">🤖 מודלים</div></div>
+    </div>`;
+    if (stats.firstUse) html += `<div style="font-size:0.78rem;color:var(--muted);margin-bottom:0.75rem;">📅 ראשון: ${stats.firstUse}  |  🕐 אחרון: ${stats.lastUse}</div>`;
+    if (sortedModels.length > 0) {
+      html += `<div style="font-size:0.82rem;font-weight:500;margin-bottom:0.5rem;">🤖 מודלים בשימוש:</div>`;
+      sortedModels.forEach(([model, count]) => {
+        const pct = Math.round(count / total * 100);
+        html += `<div class="model-stat">
+          <span style="min-width:110px;font-size:0.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${model}</span>
+          <div class="model-stat-bar"><div class="model-stat-fill" style="width:${pct}%"></div></div>
+          <span style="font-size:0.75rem;color:var(--muted);min-width:40px;text-align:left;">${count} (${pct}%)</span>
+        </div>`;
+      });
+    }
+    el.innerHTML = html;
+  }
+  openModal("modal-stats");
+}
+
+// ══ File attach ════════════════════════════════════════════════
+function handleFileSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const base64 = e.target.result.split(",")[1];
+    attachedFile = { name: file.name, base64, mime: file.type };
+    document.getElementById("file-name").textContent = file.name;
+    document.getElementById("file-preview").classList.add("visible");
+  };
+  reader.readAsDataURL(file);
+  input.value = "";
+}
+
+function clearFile() {
+  attachedFile = null;
+  document.getElementById("file-preview").classList.remove("visible");
+}
+
+// ══ New chat (toolbar button) ════════════════════════════════
+function newChat() { promptNewChat(); }
+
+// ══ Keyboard & resize ══════════════════════════════════════════
+function handleKey(e) {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+function autoResize(el) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 160) + "px";
+}
+
+// ══ Modal helpers ══════════════════════════════════════════════
+function openModal(id)  { document.getElementById(id).classList.remove("hidden"); }
+function closeModal(id) { document.getElementById(id).classList.add("hidden"); }
+
+// Close on backdrop click
+document.querySelectorAll(".modal-overlay").forEach(overlay => {
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.classList.add("hidden");
+  });
+});
+
+// ══ Toast ══════════════════════════════════════════════════════
+let _toastTimeout = null;
+function showToast(msg, type = "") {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "show" + (type ? ` ${type}` : "");
+  if (_toastTimeout) clearTimeout(_toastTimeout);
+  _toastTimeout = setTimeout(() => { t.className = ""; }, 2200);
+}
+
+// ══ Report & Blocked Models ═══════════════════════════════════
+
+// שמור את המודל האחרון ששימש בכל שליחה
+window._lastUsedModel = null;
+
+/**
+ * doReport — מקביל ל-/report בפייתון.
+ * חוסם את המודל האחרון שנשלחה אליו הודעה.
+ */
+function doReport() {
+  const lastModel = window._lastUsedModel;
+  if (!lastModel || lastModel === "auto") {
+    showToast("⚠️ שלח הודעה קודם, ואז /דווח", "error");
+    return;
+  }
+  if (!ALL_MODELS[lastModel]) {
+    showToast("⚠️ לא ניתן לחסום מודל מערכת", "error");
+    return;
+  }
+
+  const blockInfo = blockModel(lastModel);
+  const info      = ALL_MODELS[lastModel] || {};
+  const heb       = info.heb || lastModel;
+  const provider  = info.provider || "?";
+  const scopeMsg  = blockInfo.scope === "provider"
+    ? "ספק " + provider + " נחסם ל-" + blockInfo.duration + "ש'"
+    : heb + " נחסם ל-" + blockInfo.duration + "ש'";
+
+  showToast("⛔ " + scopeMsg, "error");
+
+  // הצג הודעת אישור בצ'אט
+  addMessage("bot",
+    "⛔ **דיווח נרשם**\n" +
+    "מודל: `" + lastModel + "` (" + heb + ")\n" +
+    "ספק: " + provider + "\n" +
+    scopeMsg + "\n" +
+    "_הבחירה האוטומטית תעקוף מודל זה._"
+  );
+}
+
+/** openBlockedModal — מציג את כל המודלים החסומים כרגע */
+function openBlockedModal() {
+  const el = document.getElementById("blocked-list");
+  const blocked = cleanExpiredBlocks(loadBlocked());
+  const now = Date.now();
+
+  if (Object.keys(blocked).length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;font-size:0.85rem;padding:0.5rem;">אין מודלים חסומים כרגע 🎉</div>';
+  } else {
+    el.innerHTML = "";
+    for (const [key, val] of Object.entries(blocked)) {
+      const remaining = val === -1 ? "ידנית" : (Math.max(1, Math.round((val - now) / 1000)) + "ש'");
+      const isProvider = key.startsWith("_provider_");
+      const label = isProvider
+        ? "ספק " + key.replace("_provider_", "") + " (כל המודלים)"
+        : ((ALL_MODELS[key] || {}).heb || key);
+      const item = document.createElement("div");
+      item.style.cssText = "display:flex;align-items:center;gap:0.5rem;padding:0.45rem 0.7rem;border:1px solid var(--border);border-radius:8px;margin-bottom:0.35rem;font-size:0.84rem;";
+      item.innerHTML =
+        '<span style="flex:1;">⛔ ' + label + '</span>' +
+        '<span style="color:var(--warning);font-size:0.75rem;">' + remaining + '</span>' +
+        '<button onclick="unblockOne(\'' + key + '\')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:0.15rem 0.4rem;color:var(--muted);cursor:pointer;font-size:0.75rem;" title="בטל חסימה">🔓</button>';
+      el.appendChild(item);
+    }
+  }
+  openModal("modal-blocked");
+}
+
+function unblockOne(key) {
+  const blocked = loadBlocked();
+  delete blocked[key];
+  saveBlocked(blocked);
+  openBlockedModal();
+  showToast("🔓 חסימה בוטלה", "success");
+}
+
+function unblockAll() {
+  saveBlocked({});
+  openBlockedModal();
+  showToast("🔓 כל החסימות בוטלו", "success");
+}
+
+</script>
+
+<!-- ══ MODAL: BLOCKED MODELS ══════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-blocked">
+  <div class="modal">
+    <h3>🔒 מודלים חסומים כרגע</h3>
+    <div id="blocked-list" style="margin-bottom:1rem;max-height:260px;overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn-danger" onclick="unblockAll()">🔓 בטל הכל</button>
+      <button class="btn-secondary" onclick="closeModal('modal-blocked')">סגור</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
