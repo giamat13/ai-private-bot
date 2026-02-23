@@ -412,6 +412,9 @@
     <button class="tool-btn" onclick="doExport()" title="ייצוא כ-txt">📤 ייצא</button>
     <div class="tool-separator"></div>
     <button class="tool-btn" onclick="openToneModal()" title="סגנון תשובה">🎨 סגנון</button>
+    <div class="tool-separator"></div>
+    <button class="tool-btn" onclick="doReport()" title="קרדיטים נגמרו? חסום מודל אוטומטית" id="btn-report">⛔ דווח</button>
+    <button class="tool-btn" onclick="openBlockedModal()" title="מודלים חסומים כרגע" id="btn-blocked">🔒 חסומים</button>
   </div>
 
   <div id="messages">
@@ -687,6 +690,324 @@ function selectModel(id) {
   document.getElementById("model-badge").textContent = id;
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  🧠 AUTO MODEL SELECTION — מועתק מ-main.py במדויק
+// ══════════════════════════════════════════════════════════════════
+
+// --- ALL_MODELS (מתוך main.py) ---
+const ALL_MODELS = {
+  // ===== Groq Cloud =====
+  "llama-3.1-8b-instant":    { provider: "groq",     heb: "Llama 3.1 8B" },
+  "llama-3.3-70b-versatile": { provider: "groq",     heb: "Llama 3.3 70B" },
+  "llama-4-maverick":        { provider: "groq",     heb: "Llama 4 Maverick" },
+  "llama-4-scout":           { provider: "groq",     heb: "Llama 4 Scout" },
+  "kimi-k2":                 { provider: "groq",     heb: "Kimi K2" },
+  "gpt-oss-120b":            { provider: "groq",     heb: "GPT OSS 120B" },
+  "gpt-oss-20b":             { provider: "groq",     heb: "GPT OSS 20B" },
+  "qwen3-32b":               { provider: "groq",     heb: "Qwen 3 32B" },
+  "groq-compound":           { provider: "groq",     heb: "Groq Compound" },
+  "groq-compound-mini":      { provider: "groq",     heb: "Groq Compound Mini" },
+  // ===== Cerebras =====
+  "cerebras-llama3.1-8b":   { provider: "cerebras", heb: "Llama 3.1 8B (Cerebras)" },
+  "cerebras-gpt-oss-120b":  { provider: "cerebras", heb: "GPT OSS 120B (Cerebras)" },
+  "cerebras-qwen3-235b":    { provider: "cerebras", heb: "Qwen3 235B (Cerebras)" },
+  "cerebras-zai-glm-4.7":  { provider: "cerebras", heb: "GLM 4.7 (Cerebras)" },
+  // ===== Google Gemini =====
+  "gemini-2.5-flash-lite":  { provider: "gemini",   heb: "Gemini 2.5 Flash-Lite" },
+  "gemini-2.5-flash":       { provider: "gemini",   heb: "Gemini 2.5 Flash" },
+  "gemini-2.5-pro":         { provider: "gemini",   heb: "Gemini 2.5 Pro" },
+  "gemini-3-flash":         { provider: "gemini",   heb: "Gemini 3 Flash" },
+  "gemini-3-pro":           { provider: "gemini",   heb: "Gemini 3 Pro" },
+  // ===== Mistral =====
+  "mistral-large":   { provider: "mistral", heb: "Mistral Large 3" },
+  "mistral-medium":  { provider: "mistral", heb: "Mistral Medium 3.1" },
+  "mistral-small":   { provider: "mistral", heb: "Mistral Small 3.2" },
+  "ministral-14b":   { provider: "mistral", heb: "Ministral 3 14B" },
+  "ministral-8b":    { provider: "mistral", heb: "Ministral 3 8B" },
+  "ministral-3b":    { provider: "mistral", heb: "Ministral 3 3B" },
+  "magistral-medium":{ provider: "mistral", heb: "Magistral Medium 1.2" },
+  "magistral-small": { provider: "mistral", heb: "Magistral Small 1.2" },
+  "codestral":       { provider: "mistral", heb: "Codestral" },
+  "devstral":        { provider: "mistral", heb: "Devstral 2" },
+  "mistral-nemo":    { provider: "mistral", heb: "Mistral Nemo 12B" },
+};
+
+// --- MODEL_PROFILES (emoji + best_for) מתוך main.py ---
+const MODEL_PROFILES = {
+  "llama-3.1-8b-instant":    { emoji: "⚡", best_for: "שיחות יומיומיות, שאלות פשוטות, סיכומים קצרים" },
+  "llama-3.3-70b-versatile": { emoji: "✍️", best_for: "כתיבה, עברית, ניתוח טקסט, תרגום, שאלות כלליות" },
+  "llama-4-scout":           { emoji: "📄", best_for: "מסמכים ארוכים מאוד, ניתוח קוד בסקייל, עיבוד קבצים ענקיים" },
+  "llama-4-maverick":        { emoji: "🌍", best_for: "רב-לשוניות, הנמקה מתקדמת, שאלות בשפות זרות, ידע כללי רחב" },
+  "kimi-k2":                 { emoji: "💻", best_for: "קוד, תכנות, debugging, הנדסת תוכנה, אוטומציה" },
+  "qwen3-32b":               { emoji: "🔢", best_for: "מתמטיקה, STEM, לוגיקה, חישובים, פיזיקה, כימיה" },
+  "gpt-oss-20b":             { emoji: "🎯", best_for: "שאלות בינוניות, תגובות מהירות ומדויקות" },
+  "gpt-oss-120b":            { emoji: "🧠", best_for: "מחקר עמוק, reasoning מורכב, פילוסופיה, השוואות, ניתוח אסטרטגי" },
+  "groq-compound-mini":      { emoji: "🔍", best_for: "שאלות על אירועים עדכניים, מחירים, חדשות, מזג אוויר" },
+  "groq-compound":           { emoji: "🔬", best_for: "מחקר מרובה מקורות, ניתוח עם ריצת קוד, שאלות שדורשות כמה חיפושים" },
+  "cerebras-llama3.1-8b":   { emoji: "⚡", best_for: "שאלות קצרות וישירות, שיחות מהירות, chatbot בזמן אמת" },
+  "cerebras-gpt-oss-120b":  { emoji: "🚀", best_for: "reasoning מתקדם, קוד, מתמטיקה, מחקר עמוק — ומהיר פי 15" },
+  "cerebras-qwen3-235b":    { emoji: "🌟", best_for: "ידע כללי, ריבוי לשונות, STEM, כתיבה, הנמקה — הכי חכם ב-Cerebras" },
+  "cerebras-zai-glm-4.7":  { emoji: "🤖", best_for: "משימות סוכן, קוד מורכב, SWE-bench, יכולות כלים מתקדמות" },
+  "gemini-2.5-flash-lite":  { emoji: "💡", best_for: "batch גדול, עיבוד מסמכים ארוכים, שאלות פשוטות, מיון" },
+  "gemini-2.5-flash":       { emoji: "⚡", best_for: "שאלות כלליות, כתיבה, קוד, תמונות, מסמכים, ריבוי לשונות" },
+  "gemini-2.5-pro":         { emoji: "💎", best_for: "reasoning מורכב, קוד ארוך, ניתוח מסמכים ענקיים, STEM מתקדם" },
+  "gemini-3-flash":         { emoji: "🌠", best_for: "שיחות מהירות, כתיבה, ידע כללי — חזק כמו Pro דורות קודמים" },
+  "gemini-3-pro":           { emoji: "🏆", best_for: "המשימות הכי קשות: reasoning מולטי-שלבי, vibe coding, agentic workflows" },
+  "mistral-large":          { emoji: "🌊", best_for: "כתיבה מורכבת, ניתוח עמוק, ריבוי לשונות, ידע כללי" },
+  "mistral-medium":         { emoji: "🖼️", best_for: "מולטימודאלי, תמונות + טקסט, ניתוח מסמכים, RAG" },
+  "mistral-small":          { emoji: "⚡", best_for: "שיחות יומיומיות, כתיבה מהירה, עיבוד טקסט, batch" },
+  "ministral-14b":          { emoji: "📋", best_for: "מסמכים, vision, הסברים, תרגום, שאלות בינוניות–מורכבות" },
+  "ministral-8b":           { emoji: "🚀", best_for: "שאלות מהירות, עיבוד טקסט, תגובות יומיומיות" },
+  "ministral-3b":           { emoji: "💨", best_for: "edge deployment, batch גדול, latency מינימלי" },
+  "magistral-medium":       { emoji: "🧮", best_for: "מתמטיקה, לוגיקה, הנמקה מורכבת, הוכחות, STEM מתקדם" },
+  "magistral-small":        { emoji: "🔮", best_for: "reasoning בינוני, מתמטיקה שוטפת, בעיות לוגיקה" },
+  "codestral":              { emoji: "💻", best_for: "השלמת קוד (FIM), code completion ב-IDE, developer tools" },
+  "devstral":               { emoji: "🛠️", best_for: "סוכן קוד אוטונומי, SWE-agent, ניווט codebase" },
+  "mistral-nemo":           { emoji: "🌍", best_for: "ריבוי לשונות, עברית, ערבית, שפות אירופאיות, תרגום" },
+};
+
+// --- PROVIDER_BLOCK_CONFIG (מתוך main.py) ---
+// scope "model"    = חוסם רק את המודל הספציפי
+// scope "provider" = חוסם את כל הספק
+const PROVIDER_BLOCK_CONFIG = {
+  "groq":     { scope: "model",    duration_seconds: 60 },
+  "mistral":  { scope: "provider", duration_seconds: 60 },
+  "cerebras": { scope: "model",    duration_seconds: 60 },
+  "gemini":   { scope: "provider", duration_seconds: 60 },
+};
+
+// --- PRIORITY_ORDER (מתוך main.py) ---
+const PRIORITY_ORDER = [
+  "groq-compound",
+  "groq-compound-mini",
+  "kimi-k2",
+  "qwen3-32b",
+  "llama-4-maverick",
+  "llama-4-scout",
+  "gpt-oss-120b",
+  "gpt-oss-20b",
+  "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant",
+  // Cerebras — גיבוי מהיר
+  "cerebras-qwen3-235b",
+  "cerebras-gpt-oss-120b",
+  "cerebras-zai-glm-4.7",
+  "cerebras-llama3.1-8b",
+  // Gemini — גיבוי עם 1M context
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-pro",
+  "gemini-3-flash",
+  "gemini-3-pro",
+  // Mistral — גיבוי איכותי
+  "mistral-large",
+  "mistral-medium",
+  "magistral-medium",
+  "codestral",
+  "devstral",
+  "mistral-small",
+  "mistral-nemo",
+];
+
+// --- Keyword map לבחירה מיידית (מתוך main.py) ---
+const KW_MAP = {
+  "groq-compound-mini": [
+    "מחיר", "price", "היום", "today", "עכשיו", "now", "חדשות", "news",
+    "מזג אוויר", "weather", "מניה", "stock", "שער חליפין", "exchange rate",
+    "אירוע", "event", "שעות פתיחה", "opening hours", "latest", "recent",
+  ],
+  "groq-compound": [
+    "חפש באינטרנט", "search the web", "מחקר עדכני", "recent research",
+    "השווה בין מוצרים", "compare products", "מה קורה עם", "what happened with",
+    "חדשות על", "news about", "עדכון על", "update on",
+  ],
+  "kimi-k2": [
+    "python", "javascript", "typescript", "java", "c++", "rust", "go", "kotlin", "swift",
+    "html", "css", "sql", "bash", "shell", "dockerfile", "kubernetes", "react", "node",
+    "קוד", "code", "bug", "debug", "script", "פונקצי", "function", "class", "api",
+    "תכנות", "program", "develop", "git", "endpoint", "framework", "אלגוריתם", "compiler",
+  ],
+  "qwen3-32b": [
+    "integral", "derivative", "matrix", "eigenvalue", "differential", "theorem",
+    "אינטגרל", "גזירה", "מטריצה", "משפט", "הוכחה", "proof",
+    "trigonometry", "calculus", "algebra", "geometry", "statistics", "probability",
+    "הסתברות", "סטטיסטיק", "חשבון דיפרנציאלי", "חשב ", "חשבי ", "כמה עולה",
+  ],
+  "llama-4-scout": [
+    "מסמך ארוך", "long document", "קובץ ענק", "huge file", "כל הקוד", "entire codebase",
+    "עשרות עמודים", "hundreds of pages", "ספר שלם", "full book",
+  ],
+};
+
+// --- routing table (מתוך main.py) ---
+const CATEGORY_ROUTING = {
+  "INTERNET":     "groq-compound-mini",
+  "LONGDOC":      "llama-4-scout",
+  "CODE":         "kimi-k2",
+  "MATH":         "qwen3-32b",
+  "MULTILINGUAL": "llama-4-maverick",
+  "RESEARCH":     "gpt-oss-120b",
+  "FRONTIER":     "cerebras-gpt-oss-120b",
+  "WRITING":      "llama-3.3-70b-versatile",
+  "SIMPLE":       "llama-3.1-8b-instant",
+};
+
+// --- Blocked models state (localStorage) ---
+// מבנה: { "model-name": timestamp_unblock, "_provider_groq": timestamp_unblock, ... }
+// timestamp = unix ms, -1 = חסום לתמיד
+const BLOCKED_KEY = "ai_blocked_models_v1";
+
+function loadBlocked() {
+  try { return JSON.parse(localStorage.getItem(BLOCKED_KEY) || "{}"); } catch { return {}; }
+}
+function saveBlocked(data) {
+  try { localStorage.setItem(BLOCKED_KEY, JSON.stringify(data)); } catch {}
+}
+function cleanExpiredBlocks(blocked) {
+  const now = Date.now();
+  return Object.fromEntries(
+    Object.entries(blocked).filter(([, v]) => v === -1 || v > now)
+  );
+}
+
+/** מחזיר { blocked: bool, reason: string } — מקביל ל-is_model_blocked בפייתון */
+function isModelBlocked(modelName) {
+  let blocked = cleanExpiredBlocks(loadBlocked());
+  const now = Date.now();
+
+  if (modelName in blocked) {
+    const val = blocked[modelName];
+    if (val === -1) return { blocked: true, reason: "חסום ידנית" };
+    const remaining = Math.max(1, Math.round((val - now) / 1000));
+    return { blocked: true, reason: `חסום עוד ${remaining}ש׳` };
+  }
+
+  const provider = (ALL_MODELS[modelName] || {}).provider || "";
+  const pkey = `_provider_${provider}`;
+  if (pkey in blocked) {
+    const val = blocked[pkey];
+    if (val === -1) return { blocked: true, reason: `ספק ${provider} חסום ידנית` };
+    const remaining = Math.max(1, Math.round((val - now) / 1000));
+    return { blocked: true, reason: `ספק ${provider} חסום עוד ${remaining}ש׳` };
+  }
+
+  return { blocked: false, reason: "" };
+}
+
+/** חוסם מודל/ספק לפי PROVIDER_BLOCK_CONFIG — מקביל ל-block_model_by_name בפייתון */
+function blockModel(modelName) {
+  const info     = ALL_MODELS[modelName] || {};
+  const provider = info.provider || "groq";
+  const cfg      = PROVIDER_BLOCK_CONFIG[provider] || { scope: "model", duration_seconds: 60 };
+  const unblockAt = Date.now() + cfg.duration_seconds * 1000;
+
+  let blocked = cleanExpiredBlocks(loadBlocked());
+  const scopeKey = cfg.scope === "provider" ? `_provider_${provider}` : modelName;
+  blocked[scopeKey] = unblockAt;
+  saveBlocked(blocked);
+
+  return { scope: cfg.scope, provider, model: modelName, duration: cfg.duration_seconds, key: scopeKey };
+}
+
+/**
+ * select_model_by_keywords — מקביל לפונקציה בפייתון.
+ * שלב 1: keyword matching מיידי
+ * שלב 2: AI classification דרך ה-API (llama-3.1-8b-instant)
+ * שלב 3: routing + fallback לפי PRIORITY_ORDER
+ * מחזיר { model, emoji, heb, category, method }
+ */
+async function selectModelAuto(text) {
+  const textLower = text.toLowerCase();
+
+  // ── שלב 1: keyword matching ────────────────────────────────
+  for (const [modelKey, keywords] of Object.entries(KW_MAP)) {
+    if (isModelBlocked(modelKey).blocked) continue;
+    if (keywords.some(kw => textLower.includes(kw))) {
+      const profile = MODEL_PROFILES[modelKey] || {};
+      return {
+        model: modelKey,
+        emoji: profile.emoji || "🤖",
+        heb: (ALL_MODELS[modelKey] || {}).heb || modelKey,
+        category: "KEYWORD",
+        method: "keyword",
+      };
+    }
+  }
+
+  // ── שלב 2: AI classification ────────────────────────────────
+  const classifyPrompt = `You are a routing assistant. Classify this question into ONE category.
+
+INTERNET: needs current info — news, prices, weather, recent events, today's date facts
+LONGDOC: analyzing very long documents, entire codebases, books (10M+ token context needed)
+CODE: programming, debugging, software engineering, scripts, databases, algorithms
+MATH: math, calculations, formulas, STEM, physics, chemistry, biology, statistics
+MULTILINGUAL: question in non-Hebrew/English language, OR about language/translation tasks
+RESEARCH: deep multi-step analysis, philosophy, strategy, academic, complex comparisons
+FRONTIER: extremely complex reasoning, frontier-level task, needs best possible model
+WRITING: writing, editing, summarizing, explaining, Hebrew text tasks
+SIMPLE: greeting, casual chat, simple yes/no, short factual question
+
+Question: "${text}"
+
+Reply with ONLY one word.`;
+
+  let category = "WRITING"; // ברירת מחדל
+  try {
+    const res = await fetch(`${API_BASE}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: classifyPrompt }],
+        model: "llama-3.1-8b-instant",   // classifier קל, כמו בפייתון
+        _classify: true,                   // hint לשרת — לא חובה
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const raw = (data.reply || "").trim().toUpperCase().split(/\s/)[0];
+      if (raw && CATEGORY_ROUTING[raw]) category = raw;
+    }
+  } catch { /* fallback to WRITING */ }
+
+  // ── שלב 3: routing + fallback ───────────────────────────────
+  let chosen = CATEGORY_ROUTING[category] || "llama-3.3-70b-versatile";
+
+  if (!isModelBlocked(chosen).blocked) {
+    const profile = MODEL_PROFILES[chosen] || {};
+    return {
+      model: chosen,
+      emoji: profile.emoji || "🤖",
+      heb: (ALL_MODELS[chosen] || {}).heb || chosen,
+      category,
+      method: "classify",
+    };
+  }
+
+  // fallback לפי PRIORITY_ORDER
+  for (const fallback of PRIORITY_ORDER) {
+    if (!isModelBlocked(fallback).blocked && ALL_MODELS[fallback]) {
+      const profile = MODEL_PROFILES[fallback] || {};
+      return {
+        model: fallback,
+        emoji: profile.emoji || "🤖",
+        heb: (ALL_MODELS[fallback] || {}).heb || fallback,
+        category,
+        method: "fallback",
+      };
+    }
+  }
+
+  // אין ברירה — מחזיר את chosen גם אם חסום
+  const profile = MODEL_PROFILES[chosen] || {};
+  return {
+    model: chosen,
+    emoji: profile.emoji || "🤖",
+    heb: (ALL_MODELS[chosen] || {}).heb || chosen,
+    category,
+    method: "forced",
+  };
+}
+
 // ══ Chat helpers ════════════════════════════════════════════════
 function getHistory() { return chats[activeChat] || []; }
 function setHistory(h) { chats[activeChat] = h; saveState(); }
@@ -788,10 +1109,27 @@ async function sendMessage() {
   addTypingIndicator();
 
   try {
-    // Build request body
-    const body = { messages: history, model: selectedModel };
+    // ── בחירה אוטומטית של מודל ─────────────────────────────
+    let modelToUse = selectedModel;
+    let autoInfo   = null;   // { model, emoji, heb, category, method }
+
+    if (selectedModel === "auto" && text) {
+      // עדכן badge בזמן חיפוש
+      document.getElementById("model-badge").textContent = "🔍 בוחר מודל…";
+      autoInfo   = await selectModelAuto(text);
+      modelToUse = autoInfo.model;
+      document.getElementById("model-badge").textContent = `⚡ ${autoInfo.heb}`;
+    }
+    // ────────────────────────────────────────────────────────
+
+    const body = { messages: history, model: modelToUse };
     if (attachedFile) {
       body.file = { name: attachedFile.name, data: attachedFile.base64, mime: attachedFile.mime };
+      // תמיד שלח תמונות ל-llama-4-maverick (כמו ב-handle_media בפייתון)
+      if (attachedFile.mime.startsWith("image/") && selectedModel === "auto") {
+        body.model = "llama-4-maverick";
+        modelToUse = "llama-4-maverick";
+      }
     }
 
     const res = await fetch(`${API_BASE}/api/chat`, {
@@ -805,34 +1143,76 @@ async function sendMessage() {
 
     if (res.status === 401) {
       sitePassword = "";
+      document.getElementById("model-badge").textContent = selectedModel;
       document.getElementById("auth-overlay").classList.remove("hidden");
       return;
     }
 
     const data = await res.json();
+
     if (data.error) {
+      // ── חסימת מודל אוטומטית אם rate-limit / 429 ──────────
+      if (data.error.includes("429") || data.error.includes("rate limit") ||
+          data.error.includes("קרדיטים") || data.error.includes("limit")) {
+        if (modelToUse !== "auto") {
+          const blockInfo = blockModel(modelToUse);
+          const scopeMsg  = blockInfo.scope === "provider"
+            ? `ספק ${blockInfo.provider} נחסם ל-${blockInfo.duration}ש׳`
+            : `${modelToUse} נחסם ל-${blockInfo.duration}ש׳`;
+          showToast(`⛔ ${scopeMsg}`, "error");
+        }
+      }
       addMessage("bot", `❌ ${data.error}`);
+      // שחזר badge
+      document.getElementById("model-badge").textContent = selectedModel === "auto"
+        ? "auto" : selectedModel;
+
     } else {
-      const meta = (data.model_used !== selectedModel || selectedModel === "auto")
-        ? `🤖 ${data.model_heb} (${data.model_used})`
-        : null;
+      // ── הצלחה ───────────────────────────────────────────────
+      const actualModel = data.model_used || modelToUse;
+      const profile     = MODEL_PROFILES[actualModel] || {};
+      const emoji       = profile.emoji || "🤖";
+      const heb         = (ALL_MODELS[actualModel] || {}).heb || actualModel;
+
+      let meta = null;
+      if (selectedModel === "auto" && autoInfo) {
+        // הצג מה בחרנו ולמה
+        const methodLabel = {
+          keyword:  "keyword",
+          classify: autoInfo.category,
+          fallback: "fallback",
+          forced:   "forced",
+        }[autoInfo.method] || autoInfo.method;
+        meta = `${emoji} ${heb} · AUTO→${methodLabel}`;
+      } else if (data.model_used && data.model_used !== selectedModel) {
+        meta = `${emoji} ${heb} (${data.model_used})`;
+      }
+
       addMessage("bot", data.reply, meta);
       history.push({ role: "assistant", content: data.reply });
       if (history.length > 40) history.splice(0, history.length - 40);
       setHistory(history);
 
+      // עדכן badge
+      if (selectedModel === "auto") {
+        document.getElementById("model-badge").textContent = `auto · ${emoji}${heb}`;
+      }
+
+      // שמור מודל אחרון לשימוש ב-doReport
+      window._lastUsedModel = actualModel;
+
       // Track stats
-      const modelUsed = data.model_used || selectedModel;
       stats.total++;
-      stats.models[modelUsed] = (stats.models[modelUsed] || 0) + 1;
-      const now = new Date().toLocaleString("he-IL");
-      if (!stats.firstUse) stats.firstUse = now;
-      stats.lastUse = now;
+      stats.models[actualModel] = (stats.models[actualModel] || 0) + 1;
+      const nowStr = new Date().toLocaleString("he-IL");
+      if (!stats.firstUse) stats.firstUse = nowStr;
+      stats.lastUse = nowStr;
       saveState();
     }
   } catch {
     removeTypingIndicator();
     addMessage("bot", "❌ שגיאת חיבור לשרת.");
+    document.getElementById("model-badge").textContent = selectedModel === "auto" ? "auto" : selectedModel;
   } finally {
     isWaiting = false;
     document.getElementById("send-btn").disabled = false;
@@ -884,19 +1264,46 @@ async function doRetry() {
   addTypingIndicator();
 
   try {
+    // בחירה אוטומטית גם ב-retry
+    let modelToUse = selectedModel;
+    let autoInfo   = null;
+    const lastUserMsg = [...newH].reverse().find(m => m.role === "user");
+    if (selectedModel === "auto" && lastUserMsg) {
+      document.getElementById("model-badge").textContent = "🔍 בוחר מודל…";
+      autoInfo   = await selectModelAuto(
+        typeof lastUserMsg.content === "string" ? lastUserMsg.content : ""
+      );
+      modelToUse = autoInfo.model;
+      document.getElementById("model-badge").textContent = `⚡ ${autoInfo.heb}`;
+    }
+
     const res = await fetch(`${API_BASE}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
-      body: JSON.stringify({ messages: newH, model: selectedModel })
+      body: JSON.stringify({ messages: newH, model: modelToUse })
     });
     removeTypingIndicator();
     if (res.status === 401) { sitePassword = ""; document.getElementById("auth-overlay").classList.remove("hidden"); return; }
     const data = await res.json();
     if (data.error) {
+      if (data.error.includes("429") || data.error.includes("rate limit")) {
+        blockModel(modelToUse);
+        showToast(`⛔ ${modelToUse} נחסם`, "error");
+      }
       addMessage("bot", `❌ ${data.error}`);
+      document.getElementById("model-badge").textContent = selectedModel === "auto" ? "auto" : selectedModel;
     } else {
-      const meta = (data.model_used !== selectedModel || selectedModel === "auto")
-        ? `🤖 ${data.model_heb} (${data.model_used})` : null;
+      const actualModel = data.model_used || modelToUse;
+      const profile = MODEL_PROFILES[actualModel] || {};
+      const emoji   = profile.emoji || "🤖";
+      const heb     = (ALL_MODELS[actualModel] || {}).heb || actualModel;
+      let meta = null;
+      if (selectedModel === "auto" && autoInfo) {
+        meta = `${emoji} ${heb} · AUTO→${autoInfo.method}`;
+        document.getElementById("model-badge").textContent = `auto · ${emoji}${heb}`;
+      } else if (data.model_used && data.model_used !== selectedModel) {
+        meta = `${emoji} ${heb} (${data.model_used})`;
+      }
       addMessage("bot", data.reply, meta);
       newH.push({ role: "assistant", content: data.reply });
       setHistory(newH);
@@ -1251,6 +1658,102 @@ function showToast(msg, type = "") {
   if (_toastTimeout) clearTimeout(_toastTimeout);
   _toastTimeout = setTimeout(() => { t.className = ""; }, 2200);
 }
+
+// ══ Report & Blocked Models ═══════════════════════════════════
+
+// שמור את המודל האחרון ששימש בכל שליחה
+window._lastUsedModel = null;
+
+/**
+ * doReport — מקביל ל-/report בפייתון.
+ * חוסם את המודל האחרון שנשלחה אליו הודעה.
+ */
+function doReport() {
+  const lastModel = window._lastUsedModel;
+  if (!lastModel || lastModel === "auto") {
+    showToast("⚠️ שלח הודעה קודם, ואז /דווח", "error");
+    return;
+  }
+  if (!ALL_MODELS[lastModel]) {
+    showToast("⚠️ לא ניתן לחסום מודל מערכת", "error");
+    return;
+  }
+
+  const blockInfo = blockModel(lastModel);
+  const info      = ALL_MODELS[lastModel] || {};
+  const heb       = info.heb || lastModel;
+  const provider  = info.provider || "?";
+  const scopeMsg  = blockInfo.scope === "provider"
+    ? "ספק " + provider + " נחסם ל-" + blockInfo.duration + "ש'"
+    : heb + " נחסם ל-" + blockInfo.duration + "ש'";
+
+  showToast("⛔ " + scopeMsg, "error");
+
+  // הצג הודעת אישור בצ'אט
+  addMessage("bot",
+    "⛔ **דיווח נרשם**\n" +
+    "מודל: `" + lastModel + "` (" + heb + ")\n" +
+    "ספק: " + provider + "\n" +
+    scopeMsg + "\n" +
+    "_הבחירה האוטומטית תעקוף מודל זה._"
+  );
+}
+
+/** openBlockedModal — מציג את כל המודלים החסומים כרגע */
+function openBlockedModal() {
+  const el = document.getElementById("blocked-list");
+  const blocked = cleanExpiredBlocks(loadBlocked());
+  const now = Date.now();
+
+  if (Object.keys(blocked).length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;font-size:0.85rem;padding:0.5rem;">אין מודלים חסומים כרגע 🎉</div>';
+  } else {
+    el.innerHTML = "";
+    for (const [key, val] of Object.entries(blocked)) {
+      const remaining = val === -1 ? "ידנית" : (Math.max(1, Math.round((val - now) / 1000)) + "ש'");
+      const isProvider = key.startsWith("_provider_");
+      const label = isProvider
+        ? "ספק " + key.replace("_provider_", "") + " (כל המודלים)"
+        : ((ALL_MODELS[key] || {}).heb || key);
+      const item = document.createElement("div");
+      item.style.cssText = "display:flex;align-items:center;gap:0.5rem;padding:0.45rem 0.7rem;border:1px solid var(--border);border-radius:8px;margin-bottom:0.35rem;font-size:0.84rem;";
+      item.innerHTML =
+        '<span style="flex:1;">⛔ ' + label + '</span>' +
+        '<span style="color:var(--warning);font-size:0.75rem;">' + remaining + '</span>' +
+        '<button onclick="unblockOne(\'' + key + '\')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:0.15rem 0.4rem;color:var(--muted);cursor:pointer;font-size:0.75rem;" title="בטל חסימה">🔓</button>';
+      el.appendChild(item);
+    }
+  }
+  openModal("modal-blocked");
+}
+
+function unblockOne(key) {
+  const blocked = loadBlocked();
+  delete blocked[key];
+  saveBlocked(blocked);
+  openBlockedModal();
+  showToast("🔓 חסימה בוטלה", "success");
+}
+
+function unblockAll() {
+  saveBlocked({});
+  openBlockedModal();
+  showToast("🔓 כל החסימות בוטלו", "success");
+}
+
 </script>
+
+<!-- ══ MODAL: BLOCKED MODELS ══════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-blocked">
+  <div class="modal">
+    <h3>🔒 מודלים חסומים כרגע</h3>
+    <div id="blocked-list" style="margin-bottom:1rem;max-height:260px;overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn-danger" onclick="unblockAll()">🔓 בטל הכל</button>
+      <button class="btn-secondary" onclick="closeModal('modal-blocked')">סגור</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
