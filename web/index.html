@@ -474,6 +474,23 @@
     padding: 0 3px; vertical-align: middle;
   }
 
+
+  /* ── Login loading state ──────────────────────────────────── */
+  .auth-card button.loading {
+    opacity: 0.75; cursor: not-allowed; pointer-events: none;
+    display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  }
+  .auth-card button.loading::before {
+    content: "";
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
 </style>
 </head>
 <body>
@@ -486,7 +503,7 @@
     <p>גישה פרטית — הכנס סיסמה כדי להמשיך</p>
     <input type="password" id="pw-input" placeholder="סיסמה" autocomplete="off"
            onkeydown="if(event.key==='Enter') doLogin()"/>
-    <button onclick="doLogin()">כניסה</button>
+    <button id="login-btn" onclick="doLogin()">כניסה</button>
     <div class="err-msg" id="err-msg"></div>
   </div>
 </div>
@@ -525,7 +542,6 @@
     <button class="tool-btn" onclick="openToneModal()" title="סגנון תשובה">🎨 סגנון</button>
     <div class="tool-separator"></div>
     <button class="tool-btn" onclick="doReport()" title="קרדיטים נגמרו? חסום מודל אוטומטית" id="btn-report">⛔ דווח</button>
-    <button class="tool-btn" onclick="openBlockedModal()" title="מודלים חסומים כרגע" id="btn-blocked">🔒 חסומים</button>
   </div>
 
   <div id="messages">
@@ -731,31 +747,70 @@ function ensureDefaultChat() {
 
 // ══ Auth ════════════════════════════════════════════════════════
 async function doLogin() {
-  const input  = document.getElementById("pw-input");
-  const errMsg = document.getElementById("err-msg");
+  const input    = document.getElementById("pw-input");
+  const errMsg   = document.getElementById("err-msg");
+  const loginBtn = document.getElementById("login-btn");
   const pw = input.value.trim();
   if (!pw) { errMsg.textContent = "הכנס סיסמה"; return; }
   errMsg.textContent = "";
   input.classList.remove("error");
+  input.disabled = true;
+
+  // ── הצג loading על כפתור הכניסה ──
+  loginBtn.classList.add("loading");
+  loginBtn.textContent = "מתחבר…";
+
   try {
+    // שלב 1: וידוא סיסמה
     const res = await fetch(`${API_BASE}/api/verify`, {
       method: "POST",
       headers: { "X-Site-Password": pw, "Content-Type": "application/json" }
     });
-    if (res.ok) {
-      sitePassword = pw;
-      savePassword(pw);
-      input.value = "";
-      document.getElementById("auth-overlay").classList.add("hidden");
-      loadModels();
-      renderActiveChat();
-    } else {
+
+    if (!res.ok) {
       input.classList.add("error");
       errMsg.textContent = "סיסמה שגויה. נסה שוב.";
       input.focus();
+      return;
     }
+
+    // ── סיסמה נכונה — הצג "מעיר שרת…" אם Render עדיין ישן ──
+    sitePassword = pw;
+    savePassword(pw);
+    loginBtn.textContent = "מעיר שרת…";
+
+    // שלב 2: בדוק אם השרת ער — שלח ping קטן
+    //         Render לוקח עד ~50 שניות להתעורר מ-cold start
+    const wakeStart = Date.now();
+    let serverAlive = false;
+    while (Date.now() - wakeStart < 55000) {
+      try {
+        const ping = await fetch(`${API_BASE}/api/models`, { signal: AbortSignal.timeout(6000) });
+        if (ping.ok) { serverAlive = true; break; }
+      } catch { /* עדיין ישן */ }
+      const elapsed = Math.round((Date.now() - wakeStart) / 1000);
+      loginBtn.textContent = `מעיר שרת… ${elapsed}ש'`;
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    if (!serverAlive) {
+      errMsg.textContent = "השרת לא הגיב — נסה שוב בעוד רגע.";
+      sitePassword = "";
+      return;
+    }
+
+    // ── השרת ער — כנס ──
+    input.value = "";
+    document.getElementById("auth-overlay").classList.add("hidden");
+    loadModels();
+    renderActiveChat();
+
   } catch {
     errMsg.textContent = "שגיאת חיבור לשרת.";
+  } finally {
+    input.disabled = false;
+    loginBtn.classList.remove("loading");
+    loginBtn.textContent = "כניסה";
   }
 }
 
@@ -830,6 +885,16 @@ function makeSep(label) {
   s.textContent = label || "|";
   return s;
 }
+
+// רענון אוטומטי של הבר כל 5 שניות — חסימות פוגות בדיוק כמו בפייתון (60ש')
+setInterval(() => {
+  const blocked = loadBlocked();
+  const clean   = cleanExpiredBlocks(blocked);
+  if (Object.keys(clean).length !== Object.keys(blocked).length) {
+    saveBlocked(clean);   // נקה חסימות שפגו
+    renderModelBar();     // עדכן את הבר
+  }
+}, 5000);
 
 async function loadModels() {
   try {
@@ -1320,10 +1385,16 @@ function blockModel(modelName) {
  * שלב 3: routing + fallback לפי PRIORITY_ORDER
  * מחזיר { model, emoji, heb, category, method }
  */
+/**
+ * selectModelAuto — שלב 1 סינכרוני (keywords), שלב 2 מחזיר Promise<info>.
+ * אם keywords מצאו תשובה מיד — מחזיר resolved Promise.
+ * אחרת — שולח classify request ל-llama-3.1-8b-instant.
+ * הקורא יכול להריץ את זה במקביל לבקשת הצ'אט עצמה.
+ */
 async function selectModelAuto(text) {
   const textLower = text.toLowerCase();
 
-  // ── שלב 1: keyword matching ────────────────────────────────
+  // ── שלב 1: keyword matching — סינכרוני, מיידי ──────────────
   for (const [modelKey, keywords] of Object.entries(KW_MAP)) {
     if (isModelBlocked(modelKey).blocked) continue;
     if (keywords.some(kw => textLower.includes(kw))) {
@@ -1338,7 +1409,7 @@ async function selectModelAuto(text) {
     }
   }
 
-  // ── שלב 2: AI classification ────────────────────────────────
+  // ── שלב 2: AI classification — async ────────────────────────
   const classifyPrompt = `You are a routing assistant. Classify this question into ONE category.
 
 INTERNET: needs current info — news, prices, weather, recent events, today's date facts
@@ -1355,15 +1426,15 @@ Question: "${text}"
 
 Reply with ONLY one word.`;
 
-  let category = "WRITING"; // ברירת מחדל
+  let category = "WRITING";
   try {
     const res = await fetch(`${API_BASE}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
       body: JSON.stringify({
         messages: [{ role: "user", content: classifyPrompt }],
-        model: "llama-3.1-8b-instant",   // classifier קל, כמו בפייתון
-        _classify: true,                   // hint לשרת — לא חובה
+        model: "llama-3.1-8b-instant",
+        _classify: true,
       })
     });
     if (res.ok) {
@@ -1387,7 +1458,6 @@ Reply with ONLY one word.`;
     };
   }
 
-  // fallback לפי PRIORITY_ORDER
   for (const fallback of PRIORITY_ORDER) {
     if (!isModelBlocked(fallback).blocked && ALL_MODELS[fallback]) {
       const profile = MODEL_PROFILES[fallback] || {};
@@ -1401,7 +1471,6 @@ Reply with ONLY one word.`;
     }
   }
 
-  // אין ברירה — מחזיר את chosen גם אם חסום
   const profile = MODEL_PROFILES[chosen] || {};
   return {
     model: chosen,
@@ -1519,36 +1588,68 @@ async function sendMessage() {
     const hadOverride = !!overrideModel;
 
     if (overrideModel) {
-      // שימוש חד-פעמי במודל שנבחר ידנית
+      // שימוש חד-פעמי במודל שנבחר ידנית — ידוע מיד, שלח ישר
       modelToUse = overrideModel;
       const profile = MODEL_PROFILES[modelToUse] || {};
       autoInfo = { model: modelToUse, emoji: profile.emoji || "🔹",
                    heb: (ALL_MODELS[modelToUse] || {}).heb || modelToUse,
                    category: "MANUAL", method: "manual" };
+
     } else if (selectedModel === "auto" && text) {
-      // בחירה אוטומטית
-      document.getElementById("model-badge").textContent = "🔍 בוחר מודל…";
-      autoInfo   = await selectModelAuto(text);
-      modelToUse = autoInfo.model;
-      document.getElementById("model-badge").textContent = `⚡ ${autoInfo.heb}`;
+      // ── מקביליות: keyword check מיידי — אם מצא, שלח כבר; אם לא, classify + chat ביחד ──
+      // שלב 1 סינכרוני: keyword matching — אם מצא, עדכן badge מיד
+      const kwResult = kwMatchOnly(text);
+
+      if (kwResult) {
+        // נמצא מיד — עדכן badge + שלח ישר
+        autoInfo   = kwResult;
+        modelToUse = kwResult.model;
+        document.getElementById("model-badge").textContent = `⚡ ${kwResult.heb}`;
+      } else {
+        // לא נמצא ב-keyword — הצג "בוחר מודל" עד שclassify יחזור
+        document.getElementById("model-badge").textContent = "🔍 בוחר…";
+        // keyword לא הצליח — שלח classify + chat במקביל
+        const classifyPromise = classifyOnly(text);   // מחזיר Promise<autoInfo>
+
+        // ברירת מחדל זמנית עד שclassify יחזור
+        const fallbackModel = firstAvailableModel();
+        modelToUse = fallbackModel.model;
+
+        // הפעל את שניהם במקביל
+        const [resolvedAutoInfo, chatRes] = await Promise.all([
+          classifyPromise,
+          fetchChat(history, fallbackModel.model, attachedFile)
+        ]);
+
+        autoInfo = resolvedAutoInfo;
+        document.getElementById("model-badge").textContent = `⚡ ${resolvedAutoInfo.heb}`;
+
+        // המשך עם התגובה שכבר חזרה (לא צריך fetch נוסף)
+        removeTypingIndicator();
+        clearFile();
+        if (chatRes.status === 401) {
+          sitePassword = "";
+          document.getElementById("model-badge").textContent = "auto";
+          document.getElementById("auth-overlay").classList.remove("hidden");
+          return;
+        }
+        const data = await chatRes.json();
+        await handleChatResponse(data, resolvedAutoInfo, fallbackModel.model, history, hadOverride);
+        return;
+      }
     }
     // ────────────────────────────────────────────────────────
 
-    const body = { messages: history, model: modelToUse };
-    if (attachedFile) {
-      body.file = { name: attachedFile.name, data: attachedFile.base64, mime: attachedFile.mime };
-      // תמיד שלח תמונות ל-llama-4-maverick (כמו ב-handle_media בפייתון)
-      if (attachedFile.mime.startsWith("image/") && selectedModel === "auto") {
-        body.model = "llama-4-maverick";
-        modelToUse = "llama-4-maverick";
-      }
+    // תמונות תמיד ל-llama-4-maverick
+    if (attachedFile?.mime?.startsWith("image/") && selectedModel === "auto") {
+      modelToUse = "llama-4-maverick";
+      const profile = MODEL_PROFILES[modelToUse] || {};
+      autoInfo = { model: modelToUse, emoji: profile.emoji || "🌍",
+                   heb: (ALL_MODELS[modelToUse] || {}).heb || modelToUse,
+                   category: "IMAGE", method: "image" };
     }
 
-    const res = await fetch(`${API_BASE}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
-      body: JSON.stringify(body)
-    });
+    const res = await fetchChat(history, modelToUse, attachedFile);
 
     removeTypingIndicator();
     clearFile();
@@ -2121,61 +2222,8 @@ function doReport() {
   );
 }
 
-/** openBlockedModal — מציג את כל המודלים החסומים כרגע */
-function openBlockedModal() {
-  const el = document.getElementById("blocked-list");
-  const blocked = cleanExpiredBlocks(loadBlocked());
-  const now = Date.now();
-
-  if (Object.keys(blocked).length === 0) {
-    el.innerHTML = '<div style="color:var(--muted);text-align:center;font-size:0.85rem;padding:0.5rem;">אין מודלים חסומים כרגע 🎉</div>';
-  } else {
-    el.innerHTML = "";
-    for (const [key, val] of Object.entries(blocked)) {
-      const remaining = val === -1 ? "ידנית" : (Math.max(1, Math.round((val - now) / 1000)) + "ש'");
-      const isProvider = key.startsWith("_provider_");
-      const label = isProvider
-        ? "ספק " + key.replace("_provider_", "") + " (כל המודלים)"
-        : ((ALL_MODELS[key] || {}).heb || key);
-      const item = document.createElement("div");
-      item.style.cssText = "display:flex;align-items:center;gap:0.5rem;padding:0.45rem 0.7rem;border:1px solid var(--border);border-radius:8px;margin-bottom:0.35rem;font-size:0.84rem;";
-      item.innerHTML =
-        '<span style="flex:1;">⛔ ' + label + '</span>' +
-        '<span style="color:var(--warning);font-size:0.75rem;">' + remaining + '</span>' +
-        '<button onclick="unblockOne(\'' + key + '\')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:0.15rem 0.4rem;color:var(--muted);cursor:pointer;font-size:0.75rem;" title="בטל חסימה">🔓</button>';
-      el.appendChild(item);
-    }
-  }
-  openModal("modal-blocked");
-}
-
-function unblockOne(key) {
-  const blocked = loadBlocked();
-  delete blocked[key];
-  saveBlocked(blocked);
-  openBlockedModal();
-  showToast("🔓 חסימה בוטלה", "success");
-}
-
-function unblockAll() {
-  saveBlocked({});
-  openBlockedModal();
-  showToast("🔓 כל החסימות בוטלו", "success");
-}
 
 </script>
-
-<!-- ══ MODAL: BLOCKED MODELS ══════════════════════════════════ -->
-<div class="modal-overlay hidden" id="modal-blocked">
-  <div class="modal">
-    <h3>🔒 מודלים חסומים כרגע</h3>
-    <div id="blocked-list" style="margin-bottom:1rem;max-height:260px;overflow-y:auto;"></div>
-    <div class="modal-actions">
-      <button class="btn-danger" onclick="unblockAll()">🔓 בטל הכל</button>
-      <button class="btn-secondary" onclick="closeModal('modal-blocked')">סגור</button>
-    </div>
-  </div>
-</div>
 
 
 <!-- ══ MODAL: FAVORITES ════════════════════════════════════════ -->
