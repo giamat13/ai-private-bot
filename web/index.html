@@ -115,6 +115,75 @@
   .model-btn.active { border-color: var(--accent); background: rgba(91,141,238,0.12); color: var(--accent); font-weight: 500; }
   .model-btn.blocked { opacity: 0.35; cursor: not-allowed; }
 
+  /* ── Model Tooltip ──────────────────────────────────────── */
+  .model-btn { position: relative; }
+  .model-tooltip {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 50%; transform: translateX(50%);
+    background: #1a1c26;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.65rem 0.85rem;
+    width: 240px;
+    z-index: 50;
+    text-align: right;
+    direction: rtl;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    pointer-events: none;
+  }
+  .model-tooltip::before {
+    content: "";
+    position: absolute;
+    top: -6px; right: 50%; transform: translateX(50%);
+    border: 6px solid transparent;
+    border-top: none;
+    border-bottom-color: #252836;
+  }
+  .model-tooltip::after {
+    content: "";
+    position: absolute;
+    top: -5px; right: 50%; transform: translateX(50%);
+    border: 5px solid transparent;
+    border-top: none;
+    border-bottom-color: #1a1c26;
+  }
+  .model-tooltip-name {
+    font-size: 0.82rem; font-weight: 600;
+    color: var(--accent); margin-bottom: 0.3rem;
+    display: flex; align-items: center; gap: 0.35rem;
+  }
+  .model-tooltip-best {
+    font-size: 0.76rem; color: var(--text);
+    line-height: 1.5; margin-bottom: 0.4rem;
+  }
+  .model-tooltip-best-label {
+    font-size: 0.68rem; color: var(--accent2);
+    font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; margin-bottom: 0.15rem;
+  }
+  .model-tooltip-desc {
+    font-size: 0.72rem; color: var(--muted);
+    line-height: 1.45; border-top: 1px solid var(--border);
+    padding-top: 0.35rem; margin-top: 0.1rem;
+  }
+  .model-tooltip-blocked {
+    font-size: 0.75rem; color: var(--danger);
+    margin-top: 0.3rem;
+  }
+  .model-btn:hover .model-tooltip,
+  .model-btn:focus .model-tooltip { display: block; }
+  /* keep tooltip visible when hovering it */
+  .model-bar { overflow: visible !important; }
+  /* clip only scroll, not tooltips */
+  .model-bar-scroll {
+    display: flex; align-items: center; gap: 0.5rem;
+    overflow-x: auto; scrollbar-width: none;
+    padding: 0.5rem 1rem;
+  }
+  .model-bar-scroll::-webkit-scrollbar { display: none; }
+
   /* ── Toolbar (below model bar) ──────────────────────────── */
   .toolbar {
     display: flex; align-items: center; gap: 0.4rem;
@@ -367,6 +436,61 @@
     .toolbar { padding: 0.35rem 0.7rem; }
     .modal { padding: 1.25rem; }
   }
+
+  /* ── Favorites modal ──────────────────────────────────────── */
+  .fav-item {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.42rem 0.65rem; border-radius: 8px;
+    border: 1px solid transparent; cursor: default;
+    transition: background 0.12s; font-size: 0.83rem;
+  }
+  .fav-item:hover { background: rgba(255,255,255,0.03); }
+  .fav-item.fav-active { border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.05); }
+  .fav-emoji { font-size: 1rem; flex-shrink: 0; }
+  .fav-name  { flex: 1; font-weight: 500; }
+  .fav-provider { display: none; }
+  .fav-toggle-btn {
+    background: none; border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.18rem 0.55rem;
+    font-size: 0.75rem; color: var(--muted); cursor: pointer;
+    transition: all 0.15s; flex-shrink: 0;
+  }
+  .fav-item.fav-active .fav-toggle-btn {
+    border-color: rgba(251,191,36,0.5); color: #fbbf24;
+  }
+  .fav-toggle-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+  #favorites-all-list { max-height: 320px; overflow-y: auto; margin-bottom: 0.75rem; }
+
+  /* ── Override indicator on model-btn ────────────────────────── */
+  .model-btn.override-active {
+    border-color: #fbbf24 !important;
+    background: rgba(251,191,36,0.1) !important;
+    color: #fbbf24 !important;
+  }
+  .model-btn.override-active::after {
+    content: "1×";
+    font-size: 0.6rem; margin-right: 0.25rem;
+    background: rgba(251,191,36,0.2); border-radius: 4px;
+    padding: 0 3px; vertical-align: middle;
+  }
+
+
+  /* ── Login loading state ──────────────────────────────────── */
+  .auth-card button.loading {
+    opacity: 0.75; cursor: not-allowed; pointer-events: none;
+    display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  }
+  .auth-card button.loading::before {
+    content: "";
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
 </style>
 </head>
 <body>
@@ -379,7 +503,7 @@
     <p>גישה פרטית — הכנס סיסמה כדי להמשיך</p>
     <input type="password" id="pw-input" placeholder="סיסמה" autocomplete="off"
            onkeydown="if(event.key==='Enter') doLogin()"/>
-    <button onclick="doLogin()">כניסה</button>
+    <button id="login-btn" onclick="doLogin()">כניסה</button>
     <div class="err-msg" id="err-msg"></div>
   </div>
 </div>
@@ -396,9 +520,13 @@
     <button class="header-icon-btn danger" onclick="doLogout()" title="התנתק">🔓</button>
   </header>
 
-  <div class="model-bar">
-    <span class="model-label">מודל:</span>
-    <button class="model-btn active" data-model="auto" onclick="selectModel('auto')">⚡ אוטומטי</button>
+  <div class="model-bar" style="padding:0;overflow:visible;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;">
+    <div class="model-bar-scroll" id="model-bar-inner">
+      <!-- auto + favorites rendered by JS -->
+    </div>
+    <button id="fav-manage-btn" onclick="openFavoritesModal()" title="נהל מודלים מועדפים"
+      style="flex-shrink:0;background:none;border:none;color:var(--muted);font-size:1rem;padding:0 0.7rem;cursor:pointer;transition:color 0.15s;"
+      onmouseover="this.style.color='var(--accent2)'" onmouseout="this.style.color='var(--muted)'">⭐</button>
   </div>
 
   <div class="toolbar">
@@ -412,6 +540,8 @@
     <button class="tool-btn" onclick="doExport()" title="ייצוא כ-txt">📤 ייצא</button>
     <div class="tool-separator"></div>
     <button class="tool-btn" onclick="openToneModal()" title="סגנון תשובה">🎨 סגנון</button>
+    <div class="tool-separator"></div>
+    <button class="tool-btn" onclick="doReport()" title="קרדיטים נגמרו? חסום מודל אוטומטית" id="btn-report">⛔ דווח</button>
   </div>
 
   <div id="messages">
@@ -599,6 +729,7 @@ function clearSavedPassword(){ try { localStorage.removeItem(PW_KEY); }   catch 
 window.addEventListener("DOMContentLoaded", () => {
   loadState();
   ensureDefaultChat();
+  renderModelBar();  // הצג בר מודלים מיד (כולל מועדפים) ללא המתנה ל-API
 
   const saved = loadSavedPassword();
   if (saved) {
@@ -616,31 +747,70 @@ function ensureDefaultChat() {
 
 // ══ Auth ════════════════════════════════════════════════════════
 async function doLogin() {
-  const input  = document.getElementById("pw-input");
-  const errMsg = document.getElementById("err-msg");
+  const input    = document.getElementById("pw-input");
+  const errMsg   = document.getElementById("err-msg");
+  const loginBtn = document.getElementById("login-btn");
   const pw = input.value.trim();
   if (!pw) { errMsg.textContent = "הכנס סיסמה"; return; }
   errMsg.textContent = "";
   input.classList.remove("error");
+  input.disabled = true;
+
+  // ── הצג loading על כפתור הכניסה ──
+  loginBtn.classList.add("loading");
+  loginBtn.textContent = "מתחבר…";
+
   try {
+    // שלב 1: וידוא סיסמה
     const res = await fetch(`${API_BASE}/api/verify`, {
       method: "POST",
       headers: { "X-Site-Password": pw, "Content-Type": "application/json" }
     });
-    if (res.ok) {
-      sitePassword = pw;
-      savePassword(pw);
-      input.value = "";
-      document.getElementById("auth-overlay").classList.add("hidden");
-      loadModels();
-      renderActiveChat();
-    } else {
+
+    if (!res.ok) {
       input.classList.add("error");
       errMsg.textContent = "סיסמה שגויה. נסה שוב.";
       input.focus();
+      return;
     }
+
+    // ── סיסמה נכונה — הצג "מעיר שרת…" אם Render עדיין ישן ──
+    sitePassword = pw;
+    savePassword(pw);
+    loginBtn.textContent = "מעיר שרת…";
+
+    // שלב 2: בדוק אם השרת ער — שלח ping קטן
+    //         Render לוקח עד ~50 שניות להתעורר מ-cold start
+    const wakeStart = Date.now();
+    let serverAlive = false;
+    while (Date.now() - wakeStart < 55000) {
+      try {
+        const ping = await fetch(`${API_BASE}/api/models`, { signal: AbortSignal.timeout(6000) });
+        if (ping.ok) { serverAlive = true; break; }
+      } catch { /* עדיין ישן */ }
+      const elapsed = Math.round((Date.now() - wakeStart) / 1000);
+      loginBtn.textContent = `מעיר שרת… ${elapsed}ש'`;
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    if (!serverAlive) {
+      errMsg.textContent = "השרת לא הגיב — נסה שוב בעוד רגע.";
+      sitePassword = "";
+      return;
+    }
+
+    // ── השרת ער — כנס ──
+    input.value = "";
+    document.getElementById("auth-overlay").classList.add("hidden");
+    loadModels();
+    renderActiveChat();
+
   } catch {
     errMsg.textContent = "שגיאת חיבור לשרת.";
+  } finally {
+    input.disabled = false;
+    loginBtn.classList.remove("loading");
+    loginBtn.textContent = "כניסה";
   }
 }
 
@@ -653,38 +823,662 @@ function doLogout() {
   document.getElementById("err-msg").style.color = "var(--danger)";
 }
 
-// ══ Models ══════════════════════════════════════════════════════
+// ══ Models & Favorites ══════════════════════════════════════════
+
+// מועדפים — נשמרים ב-localStorage
+const FAV_KEY = "ai_fav_models_v1";
+// overrideModel: מודל שנבחר ידנית עבור ההודעה הבאה בלבד (override זמני על auto)
+let overrideModel = null;
+
+function loadFavorites() {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY) || "null") || []; } catch { return []; }
+}
+function saveFavorites(arr) {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(arr)); } catch {}
+}
+
+/** מרנדר את בר המודלים: auto + מועדפים + שאר */
+function renderModelBar() {
+  const bar  = document.getElementById("model-bar-inner");
+  bar.innerHTML = "";
+  const favs = loadFavorites();
+
+  // ── כפתור AUTO (תמיד ראשון, תמיד ה-default) ──────────────
+  const autoBtn = buildModelBtn("auto", "אוטומטי", false, "");
+  autoBtn.classList.add(selectedModel === "auto" ? "active" : "");
+  bar.appendChild(autoBtn);
+
+  // ── מועדפים ──────────────────────────────────────────────
+  if (favs.length > 0) {
+    const sepFav = makeSep("★");
+    bar.appendChild(sepFav);
+    favs.forEach(id => {
+      if (!ALL_MODELS[id] && id !== "auto") return;
+      const info = ALL_MODELS[id] || {};
+      const { blocked, reason } = isModelBlocked(id);
+      const btn = buildModelBtn(id, info.heb || id, blocked, reason);
+      btn.classList.toggle("active", selectedModel === id);
+      bar.appendChild(btn);
+    });
+  }
+
+  // ── שאר המודלים לפי ספק ──────────────────────────────────
+  const providerOrder = ["groq","cerebras","gemini","mistral"];
+  providerOrder.forEach(prov => {
+    const group = Object.entries(ALL_MODELS).filter(([id, v]) =>
+      v.provider === prov && !favs.includes(id)
+    );
+    if (!group.length) return;
+    bar.appendChild(makeSep());
+    group.forEach(([id, info]) => {
+      const { blocked, reason } = isModelBlocked(id);
+      const btn = buildModelBtn(id, info.heb, blocked, reason);
+      btn.classList.toggle("active", selectedModel === id);
+      bar.appendChild(btn);
+    });
+  });
+}
+
+function makeSep(label) {
+  const s = document.createElement("span");
+  s.style.cssText = "color:var(--border);font-size:0.8rem;padding:0 0.15rem;flex-shrink:0;user-select:none;";
+  s.textContent = label || "|";
+  return s;
+}
+
+// רענון אוטומטי של הבר כל 5 שניות — חסימות פוגות בדיוק כמו בפייתון (60ש')
+setInterval(() => {
+  const blocked = loadBlocked();
+  const clean   = cleanExpiredBlocks(blocked);
+  if (Object.keys(clean).length !== Object.keys(blocked).length) {
+    saveBlocked(clean);   // נקה חסימות שפגו
+    renderModelBar();     // עדכן את הבר
+  }
+}, 5000);
+
 async function loadModels() {
   try {
     const res    = await fetch(`${API_BASE}/api/models`);
     const models = await res.json();
-    const bar    = document.querySelector(".model-bar");
-    const providers = [...new Set(models.map(m => m.provider))];
-    providers.forEach(prov => {
-      const group = models.filter(m => m.provider === prov);
-      const sep = document.createElement("span");
-      sep.style.cssText = "color:var(--border);font-size:0.9rem;padding:0 0.2rem;";
-      sep.textContent = "|";
-      bar.appendChild(sep);
-      group.forEach(m => {
-        const btn = document.createElement("button");
-        btn.className = "model-btn" + (m.blocked ? " blocked" : "");
-        btn.dataset.model = m.id;
-        btn.textContent = m.heb;
-        btn.title = m.id;
-        if (!m.blocked) btn.onclick = () => selectModel(m.id);
-        bar.appendChild(btn);
-      });
+    // מיזוג עם ALL_MODELS המקומי — אם השרת מחזיר blocked status
+    models.forEach(m => {
+      if (ALL_MODELS[m.id]) {
+        ALL_MODELS[m.id].heb = m.heb || ALL_MODELS[m.id].heb;
+      }
+      if (m.blocked) blockModel(m.id);  // סנכרן חסימות מהשרת
     });
-  } catch {}
+  } catch { /* fallback — ALL_MODELS המקומי מספיק */ }
+  renderModelBar();
 }
 
+/** בונה כפתור מודל עם tooltip */
+function buildModelBtn(id, heb, blocked, blockedReason) {
+  const isAuto   = id === "auto";
+  const profile  = MODEL_PROFILES[id] || {};
+  const emoji    = isAuto ? "🧠" : (profile.emoji || "🔹");
+  const bestFor  = isAuto
+    ? "קוד · מתמטיקה · כתיבה · שיחה · מחקר · אינטרנט · מסמכים · רב-לשוניות"
+    : (profile.best_for || "");
+  const desc     = isAuto
+    ? "keyword matching + AI classification + fallback אוטומטי אם מודל חסום"
+    : (profile.description || "");
+  const { blocked: isBlocked, reason } = isAuto ? { blocked: false, reason: "" } : isModelBlocked(id);
+  const actualBlocked = (blocked || isBlocked) && !isAuto;
+  const actualReason  = blockedReason || reason;
+  const provider      = isAuto ? "system" : ((ALL_MODELS[id] || {}).provider || "");
+
+  const btn = document.createElement("button");
+  btn.className     = "model-btn" + (actualBlocked ? " blocked" : "");
+  btn.dataset.model = id;
+  btn.style.cssText = "position:relative;";
+
+  const label       = document.createElement("span");
+  label.textContent = emoji + " " + heb;
+  btn.appendChild(label);
+
+  // Tooltip
+  const tip = document.createElement("div");
+  tip.className = "model-tooltip";
+  tip.innerHTML =
+    `<div class="model-tooltip-name">${emoji} ${heb}` +
+    `<span style="font-size:0.65rem;color:var(--muted);font-weight:400;margin-right:auto;">${provider}</span></div>` +
+    (bestFor ? `<div class="model-tooltip-best-label">📌 מצוין ל</div><div class="model-tooltip-best">${bestFor}</div>` : "") +
+    (desc    ? `<div class="model-tooltip-desc">${desc}</div>` : "") +
+    (actualBlocked ? `<div class="model-tooltip-blocked">⛔ ${actualReason}</div>` : "") +
+    (isAuto  ? "" : `<div style="font-size:0.7rem;color:var(--muted);margin-top:0.4rem;border-top:1px solid var(--border);padding-top:0.4rem;">לחץ לשלוח הודעה אחת עם מודל זה · לחץ שוב לביטול</div>`);
+  btn.appendChild(tip);
+
+  if (!actualBlocked) {
+    btn.onclick = () => selectModel(id);
+  }
+  return btn;
+}
+
+/**
+ * selectModel:
+ * - "auto" → selectedModel = "auto", overrideModel = null
+ * - כל אחר → selectedModel נשאר "auto", overrideModel = id (שימוש חד-פעמי)
+ *             לחיצה שנייה על אותו מודל → ביטול override
+ */
 function selectModel(id) {
-  selectedModel = id;
-  document.querySelectorAll(".model-btn").forEach(b => b.classList.remove("active"));
-  const btn = document.querySelector(`.model-btn[data-model="${id}"]`);
-  if (btn) btn.classList.add("active");
-  document.getElementById("model-badge").textContent = id;
+  if (id === "auto") {
+    selectedModel  = "auto";
+    overrideModel  = null;
+    document.getElementById("model-badge").textContent = "auto";
+    showToast("🧠 מצב AUTO פעיל", "success");
+  } else {
+    if (overrideModel === id) {
+      // ביטול override
+      overrideModel = null;
+      showToast("🧠 חזרנו למצב AUTO", "success");
+      document.getElementById("model-badge").textContent = "auto";
+    } else {
+      // override זמני — auto נשאר default
+      overrideModel = id;
+      const profile  = MODEL_PROFILES[id] || {};
+      const emoji    = profile.emoji || "🔹";
+      const heb      = (ALL_MODELS[id] || {}).heb || id;
+      document.getElementById("model-badge").textContent = `${emoji} ${heb} (פעם אחת)`;
+      showToast(`${emoji} ${heb} — שימוש חד-פעמי`, "success");
+    }
+  }
+  // עדכן active + override-active indicator
+  document.querySelectorAll(".model-btn").forEach(b => {
+    b.classList.remove("active");
+    b.classList.remove("override-active");
+  });
+  const activeId = overrideModel || "auto";
+  const activeBtn = document.querySelector(`.model-btn[data-model="${activeId}"]`);
+  if (activeBtn) {
+    activeBtn.classList.add("active");
+    if (overrideModel) activeBtn.classList.add("override-active");
+  }
+}
+
+function clearAllFavorites() {
+  saveFavorites([]);
+  renderFavoritesList();
+  renderModelBar();
+  showToast("✕ מועדפים נוקו", "");
+}
+
+
+// ══ Favorites Modal ══════════════════════════════════════════════
+function openFavoritesModal() {
+  renderFavoritesList();
+  openModal("modal-favorites");
+}
+
+function renderFavoritesList() {
+  const favs     = loadFavorites();
+  const allIds   = Object.keys(ALL_MODELS);
+  const favSet   = new Set(favs);
+  const el       = document.getElementById("favorites-all-list");
+  el.innerHTML   = "";
+
+  // קבץ לפי ספק
+  const providerOrder = ["groq","cerebras","gemini","mistral"];
+  providerOrder.forEach(prov => {
+    const group = allIds.filter(id => ALL_MODELS[id].provider === prov);
+    if (!group.length) return;
+
+    const header = document.createElement("div");
+    header.style.cssText = "font-size:0.72rem;color:var(--muted);padding:0.4rem 0 0.2rem;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;";
+    header.textContent = { groq:"⚡ Groq", cerebras:"🧬 Cerebras", gemini:"🔵 Gemini", mistral:"🌊 Mistral" }[prov] || prov;
+    el.appendChild(header);
+
+    group.forEach(id => {
+      const info    = ALL_MODELS[id] || {};
+      const profile = MODEL_PROFILES[id] || {};
+      const emoji   = profile.emoji || "🔹";
+      const isFav   = favSet.has(id);
+
+      const item = document.createElement("div");
+      item.className = "fav-item" + (isFav ? " fav-active" : "");
+      item.innerHTML =
+        `<span class="fav-emoji">${emoji}</span>` +
+        `<span class="fav-name">${info.heb || id}</span>` +
+        `<span class="fav-provider" style="font-size:0.7rem;color:var(--muted);">${id}</span>` +
+        `<button class="fav-toggle-btn" onclick="toggleFavorite('${id}', this)">` +
+          (isFav ? "★ מועדף" : "☆ הוסף") +
+        `</button>`;
+      el.appendChild(item);
+    });
+  });
+}
+
+function toggleFavorite(id, btn) {
+  const favs  = loadFavorites();
+  const idx   = favs.indexOf(id);
+  if (idx >= 0) {
+    favs.splice(idx, 1);
+    btn.textContent = "☆ הוסף";
+    btn.closest(".fav-item").classList.remove("fav-active");
+    showToast("☆ הוסר ממועדפים", "");
+  } else {
+    favs.push(id);
+    btn.textContent = "★ מועדף";
+    btn.closest(".fav-item").classList.add("fav-active");
+    showToast("★ נוסף למועדפים", "success");
+  }
+  saveFavorites(favs);
+  renderModelBar(); // עדכן בר מיד
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  🧠 AUTO MODEL SELECTION — מועתק מ-main.py במדויק
+// ══════════════════════════════════════════════════════════════════
+
+// --- ALL_MODELS (מתוך main.py) ---
+const ALL_MODELS = {
+  // ===== Groq Cloud =====
+  "llama-3.1-8b-instant":    { provider: "groq",     heb: "Llama 3.1 8B" },
+  "llama-3.3-70b-versatile": { provider: "groq",     heb: "Llama 3.3 70B" },
+  "llama-4-maverick":        { provider: "groq",     heb: "Llama 4 Maverick" },
+  "llama-4-scout":           { provider: "groq",     heb: "Llama 4 Scout" },
+  "kimi-k2":                 { provider: "groq",     heb: "Kimi K2" },
+  "gpt-oss-120b":            { provider: "groq",     heb: "GPT OSS 120B" },
+  "gpt-oss-20b":             { provider: "groq",     heb: "GPT OSS 20B" },
+  "qwen3-32b":               { provider: "groq",     heb: "Qwen 3 32B" },
+  "groq-compound":           { provider: "groq",     heb: "Groq Compound" },
+  "groq-compound-mini":      { provider: "groq",     heb: "Groq Compound Mini" },
+  // ===== Cerebras =====
+  "cerebras-llama3.1-8b":   { provider: "cerebras", heb: "Llama 3.1 8B (Cerebras)" },
+  "cerebras-gpt-oss-120b":  { provider: "cerebras", heb: "GPT OSS 120B (Cerebras)" },
+  "cerebras-qwen3-235b":    { provider: "cerebras", heb: "Qwen3 235B (Cerebras)" },
+  "cerebras-zai-glm-4.7":  { provider: "cerebras", heb: "GLM 4.7 (Cerebras)" },
+  // ===== Google Gemini =====
+  "gemini-2.5-flash-lite":  { provider: "gemini",   heb: "Gemini 2.5 Flash-Lite" },
+  "gemini-2.5-flash":       { provider: "gemini",   heb: "Gemini 2.5 Flash" },
+  "gemini-2.5-pro":         { provider: "gemini",   heb: "Gemini 2.5 Pro" },
+  "gemini-3-flash":         { provider: "gemini",   heb: "Gemini 3 Flash" },
+  "gemini-3-pro":           { provider: "gemini",   heb: "Gemini 3 Pro" },
+  // ===== Mistral =====
+  "mistral-large":   { provider: "mistral", heb: "Mistral Large 3" },
+  "mistral-medium":  { provider: "mistral", heb: "Mistral Medium 3.1" },
+  "mistral-small":   { provider: "mistral", heb: "Mistral Small 3.2" },
+  "ministral-14b":   { provider: "mistral", heb: "Ministral 3 14B" },
+  "ministral-8b":    { provider: "mistral", heb: "Ministral 3 8B" },
+  "ministral-3b":    { provider: "mistral", heb: "Ministral 3 3B" },
+  "magistral-medium":{ provider: "mistral", heb: "Magistral Medium 1.2" },
+  "magistral-small": { provider: "mistral", heb: "Magistral Small 1.2" },
+  "codestral":       { provider: "mistral", heb: "Codestral" },
+  "devstral":        { provider: "mistral", heb: "Devstral 2" },
+  "mistral-nemo":    { provider: "mistral", heb: "Mistral Nemo 12B" },
+};
+
+// --- MODEL_PROFILES (emoji + best_for + description) מתוך main.py ---
+const MODEL_PROFILES = {
+  // ===== Groq =====
+  "llama-3.1-8b-instant":    {
+    emoji: "⚡", best_for: "שיחות יומיומיות, שאלות פשוטות, סיכומים קצרים",
+    description: "מהיר ביותר (166 t/s). מספיק לרוב השאלות הקצרות."
+  },
+  "llama-3.3-70b-versatile": {
+    emoji: "✍️", best_for: "כתיבה, עברית, ניתוח טקסט, תרגום, שאלות כלליות",
+    description: "מצוין בהוראות (IFEval 92.1). ביצועים שווים ל-Llama 3.1 405B."
+  },
+  "llama-4-scout": {
+    emoji: "📄", best_for: "מסמכים ארוכים מאוד, ניתוח קוד בסקייל, עיבוד קבצים ענקיים",
+    description: "קונטקסט 10M טוקן — הכי ארוך בעולם. MoE 109B, מהיר על GPU אחד."
+  },
+  "llama-4-maverick": {
+    emoji: "🌍", best_for: "רב-לשוניות, הנמקה מתקדמת, שאלות בשפות זרות, ידע כללי רחב",
+    description: "MMLU Pro 80.5%, GPQA 69.8%. עולה על GPT-4o ו-Gemini 2.0 Flash."
+  },
+  "kimi-k2": {
+    emoji: "💻", best_for: "קוד, תכנות, debugging, הנדסת תוכנה, אוטומציה",
+    description: "מוביל open-source בקוד (SWE-bench 65.8%). 1T פרמטרים."
+  },
+  "qwen3-32b": {
+    emoji: "🔢", best_for: "מתמטיקה, STEM, לוגיקה, חישובים, פיזיקה, כימיה",
+    description: "מוביל ב-MATH benchmark (83+). חזק ב-STEM ו-reasoning מתמטי."
+  },
+  "gpt-oss-20b": {
+    emoji: "🎯", best_for: "שאלות בינוניות, תגובות מהירות ומדויקות",
+    description: "גרסה קלה ומהירה של GPT-OSS. איזון מצוין בין מהירות לאיכות."
+  },
+  "gpt-oss-120b": {
+    emoji: "🧠", best_for: "מחקר עמוק, reasoning מורכב, פילוסופיה, השוואות, ניתוח אסטרטגי",
+    description: "המודל הגדול ביותר (120B). לניתוחים שדורשים עומק מרובה שלבים."
+  },
+  "groq-compound-mini": {
+    emoji: "🔍", best_for: "שאלות על אירועים עדכניים, מחירים, חדשות, מזג אוויר",
+    description: "מחפש באינטרנט בעצמו. מהיר, שאלה אחת. עולה על GPT-4o-search."
+  },
+  "groq-compound": {
+    emoji: "🔬", best_for: "מחקר מרובה מקורות, ניתוח עם ריצת קוד, שאלות שדורשות כמה חיפושים",
+    description: "עד 10 חיפושי אינטרנט + ריצת קוד בענן."
+  },
+  // ===== Cerebras =====
+  "cerebras-llama3.1-8b": {
+    emoji: "⚡", best_for: "שאלות קצרות וישירות, שיחות מהירות, chatbot בזמן אמת",
+    description: "2200 t/s על Cerebras — הכי מהיר לשאלות פשוטות. מתאים לצ'אט חי ו-batch processing."
+  },
+  "cerebras-gpt-oss-120b": {
+    emoji: "🚀", best_for: "reasoning מתקדם, קוד, מתמטיקה, מחקר עמוק — ומהיר פי 15 מ-GPU רגיל",
+    description: "שווה ל-o4-mini באיכות, 3000 t/s על Cerebras. מודל OpenAI ב-Apache 2.0."
+  },
+  "cerebras-qwen3-235b": {
+    emoji: "🌟", best_for: "ידע כללי, ריבוי לשונות, STEM, כתיבה, הנמקה — הכי חכם ב-Cerebras",
+    description: "עולה על Claude 4 Sonnet ו-GPT-4.1 ב-Artificial Analysis. 1400 t/s, 131K context."
+  },
+  "cerebras-zai-glm-4.7": {
+    emoji: "🤖", best_for: "משימות סוכן, קוד מורכב, SWE-bench, יכולות כלים מתקדמות",
+    description: "355B פרמטרים, המודל הכי חכם ב-Cerebras לפי Artificial Analysis. מצטיין ב-agentic tasks."
+  },
+  // ===== Gemini =====
+  "gemini-2.5-flash-lite": {
+    emoji: "💡", best_for: "batch גדול, עיבוד מסמכים ארוכים, שאלות פשוטות, מיון — הכי גדול RPD חינמי (1000/יום)",
+    description: "הכי מהיר ב-Gemini 2.5, 1M context. Free tier: 1,000 RPD / 15 RPM. משתלם מאוד."
+  },
+  "gemini-2.5-flash": {
+    emoji: "⚡", best_for: "שאלות כלליות, כתיבה, קוד, תמונות, מסמכים, ריבוי לשונות — מאוזן מצוין",
+    description: "המודל הכי פופולרי של Google. 1M context, vision, thinking mode. Free: 250 RPD."
+  },
+  "gemini-2.5-pro": {
+    emoji: "💎", best_for: "reasoning מורכב, קוד ארוך, ניתוח מסמכים ענקיים, שאלות STEM מתקדמות",
+    description: "הכי חכם ב-2.5. Thinking mode מובנה. Free: 100 RPD / 5 RPM — לשמור לשאלות כבדות."
+  },
+  "gemini-3-flash": {
+    emoji: "🌠", best_for: "שיחות מהירות, כתיבה, ידע כללי — חזק כמו Pro דורות קודמים, מהיר יותר",
+    description: "Gemini 3 Flash Preview — מאזן frontier intelligence עם מהירות ומחיר."
+  },
+  "gemini-3-pro": {
+    emoji: "🏆", best_for: "המשימות הכי קשות: reasoning מולטי-שלבי, vibe coding, ניתוח מעמיק, agentic workflows",
+    description: "הכי חכם של Google (פברואר 2026). State-of-the-art multimodal, 1M context."
+  },
+  // ===== Mistral =====
+  "mistral-large": {
+    emoji: "🌊", best_for: "כתיבה מורכבת, ניתוח עמוק, ריבוי לשונות, ידע כללי, שאלות משפטיות ועסקיות",
+    description: "המודל הגדול של Mistral (open-weight). 128K context, מצוין בעברית ובשפות אירופאיות."
+  },
+  "mistral-medium": {
+    emoji: "🖼️", best_for: "מולטימודאלי, תמונות + טקסט, ניתוח מסמכים, RAG, שאלות כלליות",
+    description: "Mistral Medium 3.1 — frontier עם vision. 128K context, מאזן מצוין בין מהירות לאיכות."
+  },
+  "mistral-small": {
+    emoji: "⚡", best_for: "שיחות יומיומיות, כתיבה מהירה, עיבוד טקסט, batch, עלות-תועלת גבוהה",
+    description: "Mistral Small 3.2 — עדכון יוני 2025. open-weight, מהיר ומשתלם מאוד."
+  },
+  "ministral-14b": {
+    emoji: "📋", best_for: "מסמכים, vision, הסברים, תרגום, שאלות בינוניות–מורכבות",
+    description: "Ministral 3 14B — open, vision, 128K context. הכי חכם בסדרת Ministral."
+  },
+  "ministral-8b": {
+    emoji: "🚀", best_for: "שאלות מהירות, עיבוד טקסט, תגובות יומיומיות במחיר נמוך",
+    description: "Ministral 3 8B — open, vision, 128K context. מהיר ויעיל לשימוש יומיומי."
+  },
+  "ministral-3b": {
+    emoji: "💨", best_for: "edge deployment, מכשירים מוגבלים, batch גדול, latency מינימלי",
+    description: "Ministral 3 3B — הכי קטן וקל של Mistral. tiny & efficient, open-weight."
+  },
+  "magistral-medium": {
+    emoji: "🧮", best_for: "מתמטיקה, לוגיקה, הנמקה מורכבת, הוכחות, STEM מתקדם, בעיות רב-שלביות",
+    description: "מודל reasoning חזק עם thinking מפורש. עולה על o3-mini בבעיות לוגיקה ומתמטיקה."
+  },
+  "magistral-small": {
+    emoji: "🔮", best_for: "reasoning בינוני, מתמטיקה שוטפת, בעיות לוגיקה, מהיר יותר מ-Medium",
+    description: "Magistral Small 1.2 — open-weight reasoning model. שקיפות בשרשרת המחשבה."
+  },
+  "codestral": {
+    emoji: "💻", best_for: "השלמת קוד (FIM), code completion ב-IDE, קוד מהיר ומדויק, developer tools",
+    description: "Codestral — מותאם במיוחד ל-fill-in-the-middle. הכי מהיר ומדויק לקוד בין מודלי Mistral."
+  },
+  "devstral": {
+    emoji: "🛠️", best_for: "סוכן קוד אוטונומי, SWE-agent, ניווט codebase, עריכת קבצים מרובים, GitHub tasks",
+    description: "Devstral 2 — frontier code agent. open-weight, מוביל open-source ב-SWE-bench."
+  },
+  "mistral-nemo": {
+    emoji: "🌍", best_for: "ריבוי לשונות, עברית, ערבית, שפות אירופאיות, תרגום, chatbot רב-לשוני",
+    description: "Mistral Nemo 12B — best multilingual open source. 128K context, Apache 2.0."
+  },
+};
+
+// --- PROVIDER_BLOCK_CONFIG (מתוך main.py) ---
+// scope "model"    = חוסם רק את המודל הספציפי
+// scope "provider" = חוסם את כל הספק
+const PROVIDER_BLOCK_CONFIG = {
+  "groq":     { scope: "model",    duration_seconds: 60 },
+  "mistral":  { scope: "provider", duration_seconds: 60 },
+  "cerebras": { scope: "model",    duration_seconds: 60 },
+  "gemini":   { scope: "provider", duration_seconds: 60 },
+};
+
+// --- PRIORITY_ORDER (מתוך main.py) ---
+const PRIORITY_ORDER = [
+  "groq-compound",
+  "groq-compound-mini",
+  "kimi-k2",
+  "qwen3-32b",
+  "llama-4-maverick",
+  "llama-4-scout",
+  "gpt-oss-120b",
+  "gpt-oss-20b",
+  "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant",
+  // Cerebras — גיבוי מהיר
+  "cerebras-qwen3-235b",
+  "cerebras-gpt-oss-120b",
+  "cerebras-zai-glm-4.7",
+  "cerebras-llama3.1-8b",
+  // Gemini — גיבוי עם 1M context
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-pro",
+  "gemini-3-flash",
+  "gemini-3-pro",
+  // Mistral — גיבוי איכותי
+  "mistral-large",
+  "mistral-medium",
+  "magistral-medium",
+  "codestral",
+  "devstral",
+  "mistral-small",
+  "mistral-nemo",
+];
+
+// --- Keyword map לבחירה מיידית (מתוך main.py) ---
+const KW_MAP = {
+  "groq-compound-mini": [
+    "מחיר", "price", "היום", "today", "עכשיו", "now", "חדשות", "news",
+    "מזג אוויר", "weather", "מניה", "stock", "שער חליפין", "exchange rate",
+    "אירוע", "event", "שעות פתיחה", "opening hours", "latest", "recent",
+  ],
+  "groq-compound": [
+    "חפש באינטרנט", "search the web", "מחקר עדכני", "recent research",
+    "השווה בין מוצרים", "compare products", "מה קורה עם", "what happened with",
+    "חדשות על", "news about", "עדכון על", "update on",
+  ],
+  "kimi-k2": [
+    "python", "javascript", "typescript", "java", "c++", "rust", "go", "kotlin", "swift",
+    "html", "css", "sql", "bash", "shell", "dockerfile", "kubernetes", "react", "node",
+    "קוד", "code", "bug", "debug", "script", "פונקצי", "function", "class", "api",
+    "תכנות", "program", "develop", "git", "endpoint", "framework", "אלגוריתם", "compiler",
+  ],
+  "qwen3-32b": [
+    "integral", "derivative", "matrix", "eigenvalue", "differential", "theorem",
+    "אינטגרל", "גזירה", "מטריצה", "משפט", "הוכחה", "proof",
+    "trigonometry", "calculus", "algebra", "geometry", "statistics", "probability",
+    "הסתברות", "סטטיסטיק", "חשבון דיפרנציאלי", "חשב ", "חשבי ", "כמה עולה",
+  ],
+  "llama-4-scout": [
+    "מסמך ארוך", "long document", "קובץ ענק", "huge file", "כל הקוד", "entire codebase",
+    "עשרות עמודים", "hundreds of pages", "ספר שלם", "full book",
+  ],
+};
+
+// --- routing table (מתוך main.py) ---
+const CATEGORY_ROUTING = {
+  "INTERNET":     "groq-compound-mini",
+  "LONGDOC":      "llama-4-scout",
+  "CODE":         "kimi-k2",
+  "MATH":         "qwen3-32b",
+  "MULTILINGUAL": "llama-4-maverick",
+  "RESEARCH":     "gpt-oss-120b",
+  "FRONTIER":     "cerebras-gpt-oss-120b",
+  "WRITING":      "llama-3.3-70b-versatile",
+  "SIMPLE":       "llama-3.1-8b-instant",
+};
+
+// --- Blocked models state (localStorage) ---
+// מבנה: { "model-name": timestamp_unblock, "_provider_groq": timestamp_unblock, ... }
+// timestamp = unix ms, -1 = חסום לתמיד
+const BLOCKED_KEY = "ai_blocked_models_v1";
+
+function loadBlocked() {
+  try { return JSON.parse(localStorage.getItem(BLOCKED_KEY) || "{}"); } catch { return {}; }
+}
+function saveBlocked(data) {
+  try { localStorage.setItem(BLOCKED_KEY, JSON.stringify(data)); } catch {}
+}
+function cleanExpiredBlocks(blocked) {
+  const now = Date.now();
+  return Object.fromEntries(
+    Object.entries(blocked).filter(([, v]) => v === -1 || v > now)
+  );
+}
+
+/** מחזיר { blocked: bool, reason: string } — מקביל ל-is_model_blocked בפייתון */
+function isModelBlocked(modelName) {
+  let blocked = cleanExpiredBlocks(loadBlocked());
+  const now = Date.now();
+
+  if (modelName in blocked) {
+    const val = blocked[modelName];
+    if (val === -1) return { blocked: true, reason: "חסום ידנית" };
+    const remaining = Math.max(1, Math.round((val - now) / 1000));
+    return { blocked: true, reason: `חסום עוד ${remaining}ש׳` };
+  }
+
+  const provider = (ALL_MODELS[modelName] || {}).provider || "";
+  const pkey = `_provider_${provider}`;
+  if (pkey in blocked) {
+    const val = blocked[pkey];
+    if (val === -1) return { blocked: true, reason: `ספק ${provider} חסום ידנית` };
+    const remaining = Math.max(1, Math.round((val - now) / 1000));
+    return { blocked: true, reason: `ספק ${provider} חסום עוד ${remaining}ש׳` };
+  }
+
+  return { blocked: false, reason: "" };
+}
+
+/** חוסם מודל/ספק לפי PROVIDER_BLOCK_CONFIG — מקביל ל-block_model_by_name בפייתון */
+function blockModel(modelName) {
+  const info     = ALL_MODELS[modelName] || {};
+  const provider = info.provider || "groq";
+  const cfg      = PROVIDER_BLOCK_CONFIG[provider] || { scope: "model", duration_seconds: 60 };
+  const unblockAt = Date.now() + cfg.duration_seconds * 1000;
+
+  let blocked = cleanExpiredBlocks(loadBlocked());
+  const scopeKey = cfg.scope === "provider" ? `_provider_${provider}` : modelName;
+  blocked[scopeKey] = unblockAt;
+  saveBlocked(blocked);
+
+  return { scope: cfg.scope, provider, model: modelName, duration: cfg.duration_seconds, key: scopeKey };
+}
+
+/**
+ * select_model_by_keywords — מקביל לפונקציה בפייתון.
+ * שלב 1: keyword matching מיידי
+ * שלב 2: AI classification דרך ה-API (llama-3.1-8b-instant)
+ * שלב 3: routing + fallback לפי PRIORITY_ORDER
+ * מחזיר { model, emoji, heb, category, method }
+ */
+/**
+ * selectModelAuto — שלב 1 סינכרוני (keywords), שלב 2 מחזיר Promise<info>.
+ * אם keywords מצאו תשובה מיד — מחזיר resolved Promise.
+ * אחרת — שולח classify request ל-llama-3.1-8b-instant.
+ * הקורא יכול להריץ את זה במקביל לבקשת הצ'אט עצמה.
+ */
+async function selectModelAuto(text) {
+  const textLower = text.toLowerCase();
+
+  // ── שלב 1: keyword matching — סינכרוני, מיידי ──────────────
+  for (const [modelKey, keywords] of Object.entries(KW_MAP)) {
+    if (isModelBlocked(modelKey).blocked) continue;
+    if (keywords.some(kw => textLower.includes(kw))) {
+      const profile = MODEL_PROFILES[modelKey] || {};
+      return {
+        model: modelKey,
+        emoji: profile.emoji || "🤖",
+        heb: (ALL_MODELS[modelKey] || {}).heb || modelKey,
+        category: "KEYWORD",
+        method: "keyword",
+      };
+    }
+  }
+
+  // ── שלב 2: AI classification — async ────────────────────────
+  const classifyPrompt = `You are a routing assistant. Classify this question into ONE category.
+
+INTERNET: needs current info — news, prices, weather, recent events, today's date facts
+LONGDOC: analyzing very long documents, entire codebases, books (10M+ token context needed)
+CODE: programming, debugging, software engineering, scripts, databases, algorithms
+MATH: math, calculations, formulas, STEM, physics, chemistry, biology, statistics
+MULTILINGUAL: question in non-Hebrew/English language, OR about language/translation tasks
+RESEARCH: deep multi-step analysis, philosophy, strategy, academic, complex comparisons
+FRONTIER: extremely complex reasoning, frontier-level task, needs best possible model
+WRITING: writing, editing, summarizing, explaining, Hebrew text tasks
+SIMPLE: greeting, casual chat, simple yes/no, short factual question
+
+Question: "${text}"
+
+Reply with ONLY one word.`;
+
+  let category = "WRITING";
+  try {
+    const res = await fetch(`${API_BASE}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: classifyPrompt }],
+        model: "llama-3.1-8b-instant",
+        _classify: true,
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const raw = (data.reply || "").trim().toUpperCase().split(/\s/)[0];
+      if (raw && CATEGORY_ROUTING[raw]) category = raw;
+    }
+  } catch { /* fallback to WRITING */ }
+
+  // ── שלב 3: routing + fallback ───────────────────────────────
+  let chosen = CATEGORY_ROUTING[category] || "llama-3.3-70b-versatile";
+
+  if (!isModelBlocked(chosen).blocked) {
+    const profile = MODEL_PROFILES[chosen] || {};
+    return {
+      model: chosen,
+      emoji: profile.emoji || "🤖",
+      heb: (ALL_MODELS[chosen] || {}).heb || chosen,
+      category,
+      method: "classify",
+    };
+  }
+
+  for (const fallback of PRIORITY_ORDER) {
+    if (!isModelBlocked(fallback).blocked && ALL_MODELS[fallback]) {
+      const profile = MODEL_PROFILES[fallback] || {};
+      return {
+        model: fallback,
+        emoji: profile.emoji || "🤖",
+        heb: (ALL_MODELS[fallback] || {}).heb || fallback,
+        category,
+        method: "fallback",
+      };
+    }
+  }
+
+  const profile = MODEL_PROFILES[chosen] || {};
+  return {
+    model: chosen,
+    emoji: profile.emoji || "🤖",
+    heb: (ALL_MODELS[chosen] || {}).heb || chosen,
+    category,
+    method: "forced",
+  };
 }
 
 // ══ Chat helpers ════════════════════════════════════════════════
@@ -788,51 +1582,160 @@ async function sendMessage() {
   addTypingIndicator();
 
   try {
-    // Build request body
-    const body = { messages: history, model: selectedModel };
-    if (attachedFile) {
-      body.file = { name: attachedFile.name, data: attachedFile.base64, mime: attachedFile.mime };
+    // ── בחירה אוטומטית של מודל ─────────────────────────────
+    let modelToUse = selectedModel;
+    let autoInfo   = null;   // { model, emoji, heb, category, method }
+    const hadOverride = !!overrideModel;
+
+    if (overrideModel) {
+      // שימוש חד-פעמי במודל שנבחר ידנית — ידוע מיד, שלח ישר
+      modelToUse = overrideModel;
+      const profile = MODEL_PROFILES[modelToUse] || {};
+      autoInfo = { model: modelToUse, emoji: profile.emoji || "🔹",
+                   heb: (ALL_MODELS[modelToUse] || {}).heb || modelToUse,
+                   category: "MANUAL", method: "manual" };
+
+    } else if (selectedModel === "auto" && text) {
+      // ── מקביליות: keyword check מיידי — אם מצא, שלח כבר; אם לא, classify + chat ביחד ──
+      // שלב 1 סינכרוני: keyword matching — אם מצא, עדכן badge מיד
+      const kwResult = kwMatchOnly(text);
+
+      if (kwResult) {
+        // נמצא מיד — עדכן badge + שלח ישר
+        autoInfo   = kwResult;
+        modelToUse = kwResult.model;
+        document.getElementById("model-badge").textContent = `⚡ ${kwResult.heb}`;
+      } else {
+        // לא נמצא ב-keyword — הצג "בוחר מודל" עד שclassify יחזור
+        document.getElementById("model-badge").textContent = "🔍 בוחר…";
+        // keyword לא הצליח — שלח classify + chat במקביל
+        const classifyPromise = classifyOnly(text);   // מחזיר Promise<autoInfo>
+
+        // ברירת מחדל זמנית עד שclassify יחזור
+        const fallbackModel = firstAvailableModel();
+        modelToUse = fallbackModel.model;
+
+        // הפעל את שניהם במקביל
+        const [resolvedAutoInfo, chatRes] = await Promise.all([
+          classifyPromise,
+          fetchChat(history, fallbackModel.model, attachedFile)
+        ]);
+
+        autoInfo = resolvedAutoInfo;
+        document.getElementById("model-badge").textContent = `⚡ ${resolvedAutoInfo.heb}`;
+
+        // המשך עם התגובה שכבר חזרה (לא צריך fetch נוסף)
+        removeTypingIndicator();
+        clearFile();
+        if (chatRes.status === 401) {
+          sitePassword = "";
+          document.getElementById("model-badge").textContent = "auto";
+          document.getElementById("auth-overlay").classList.remove("hidden");
+          return;
+        }
+        const data = await chatRes.json();
+        await handleChatResponse(data, resolvedAutoInfo, fallbackModel.model, history, hadOverride);
+        return;
+      }
+    }
+    // ────────────────────────────────────────────────────────
+
+    // תמונות תמיד ל-llama-4-maverick
+    if (attachedFile?.mime?.startsWith("image/") && selectedModel === "auto") {
+      modelToUse = "llama-4-maverick";
+      const profile = MODEL_PROFILES[modelToUse] || {};
+      autoInfo = { model: modelToUse, emoji: profile.emoji || "🌍",
+                   heb: (ALL_MODELS[modelToUse] || {}).heb || modelToUse,
+                   category: "IMAGE", method: "image" };
     }
 
-    const res = await fetch(`${API_BASE}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
-      body: JSON.stringify(body)
-    });
+    const res = await fetchChat(history, modelToUse, attachedFile);
 
     removeTypingIndicator();
     clearFile();
 
     if (res.status === 401) {
       sitePassword = "";
+      document.getElementById("model-badge").textContent = selectedModel;
       document.getElementById("auth-overlay").classList.remove("hidden");
       return;
     }
 
     const data = await res.json();
+
     if (data.error) {
+      // ── חסימת מודל אוטומטית אם rate-limit / 429 ──────────
+      if (data.error.includes("429") || data.error.includes("rate limit") ||
+          data.error.includes("קרדיטים") || data.error.includes("limit")) {
+        if (modelToUse !== "auto") {
+          const blockInfo = blockModel(modelToUse);
+          const scopeMsg  = blockInfo.scope === "provider"
+            ? `ספק ${blockInfo.provider} נחסם ל-${blockInfo.duration}ש׳`
+            : `${modelToUse} נחסם ל-${blockInfo.duration}ש׳`;
+          showToast(`⛔ ${scopeMsg}`, "error");
+        }
+      }
       addMessage("bot", `❌ ${data.error}`);
+      // שחזר badge
+      document.getElementById("model-badge").textContent = selectedModel === "auto"
+        ? "auto" : selectedModel;
+
     } else {
-      const meta = (data.model_used !== selectedModel || selectedModel === "auto")
-        ? `🤖 ${data.model_heb} (${data.model_used})`
-        : null;
+      // ── הצלחה ───────────────────────────────────────────────
+      const actualModel = data.model_used || modelToUse;
+      const profile     = MODEL_PROFILES[actualModel] || {};
+      const emoji       = profile.emoji || "🤖";
+      const heb         = (ALL_MODELS[actualModel] || {}).heb || actualModel;
+
+      let meta = null;
+      if (selectedModel === "auto" && autoInfo) {
+        // הצג מה בחרנו ולמה
+        const methodLabel = {
+          keyword:  "keyword",
+          classify: autoInfo.category,
+          fallback: "fallback",
+          forced:   "forced",
+        }[autoInfo.method] || autoInfo.method;
+        meta = `${emoji} ${heb} · AUTO→${methodLabel}`;
+      } else if (data.model_used && data.model_used !== selectedModel) {
+        meta = `${emoji} ${heb} (${data.model_used})`;
+      }
+
       addMessage("bot", data.reply, meta);
       history.push({ role: "assistant", content: data.reply });
       if (history.length > 40) history.splice(0, history.length - 40);
       setHistory(history);
 
+      // אחרי שליחה — אם היה override, חזור ל-auto
+      if (hadOverride) {
+        overrideModel = null;
+        document.getElementById("model-badge").textContent = "auto";
+        document.querySelectorAll(".model-btn").forEach(b => {
+          b.classList.remove("override-active");
+          b.classList.remove("active");
+        });
+        const autoBtn = document.querySelector('.model-btn[data-model="auto"]');
+        if (autoBtn) autoBtn.classList.add("active");
+        showToast("🧠 חזרנו ל-AUTO", "");
+      } else if (selectedModel === "auto") {
+        document.getElementById("model-badge").textContent = `auto · ${emoji}${heb}`;
+      }
+
+      // שמור מודל אחרון לשימוש ב-doReport
+      window._lastUsedModel = actualModel;
+
       // Track stats
-      const modelUsed = data.model_used || selectedModel;
       stats.total++;
-      stats.models[modelUsed] = (stats.models[modelUsed] || 0) + 1;
-      const now = new Date().toLocaleString("he-IL");
-      if (!stats.firstUse) stats.firstUse = now;
-      stats.lastUse = now;
+      stats.models[actualModel] = (stats.models[actualModel] || 0) + 1;
+      const nowStr = new Date().toLocaleString("he-IL");
+      if (!stats.firstUse) stats.firstUse = nowStr;
+      stats.lastUse = nowStr;
       saveState();
     }
   } catch {
     removeTypingIndicator();
     addMessage("bot", "❌ שגיאת חיבור לשרת.");
+    document.getElementById("model-badge").textContent = selectedModel === "auto" ? "auto" : selectedModel;
   } finally {
     isWaiting = false;
     document.getElementById("send-btn").disabled = false;
@@ -884,19 +1787,46 @@ async function doRetry() {
   addTypingIndicator();
 
   try {
+    // בחירה אוטומטית גם ב-retry
+    let modelToUse = selectedModel;
+    let autoInfo   = null;
+    const lastUserMsg = [...newH].reverse().find(m => m.role === "user");
+    if (selectedModel === "auto" && lastUserMsg) {
+      document.getElementById("model-badge").textContent = "🔍 בוחר מודל…";
+      autoInfo   = await selectModelAuto(
+        typeof lastUserMsg.content === "string" ? lastUserMsg.content : ""
+      );
+      modelToUse = autoInfo.model;
+      document.getElementById("model-badge").textContent = `⚡ ${autoInfo.heb}`;
+    }
+
     const res = await fetch(`${API_BASE}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Site-Password": sitePassword },
-      body: JSON.stringify({ messages: newH, model: selectedModel })
+      body: JSON.stringify({ messages: newH, model: modelToUse })
     });
     removeTypingIndicator();
     if (res.status === 401) { sitePassword = ""; document.getElementById("auth-overlay").classList.remove("hidden"); return; }
     const data = await res.json();
     if (data.error) {
+      if (data.error.includes("429") || data.error.includes("rate limit")) {
+        blockModel(modelToUse);
+        showToast(`⛔ ${modelToUse} נחסם`, "error");
+      }
       addMessage("bot", `❌ ${data.error}`);
+      document.getElementById("model-badge").textContent = selectedModel === "auto" ? "auto" : selectedModel;
     } else {
-      const meta = (data.model_used !== selectedModel || selectedModel === "auto")
-        ? `🤖 ${data.model_heb} (${data.model_used})` : null;
+      const actualModel = data.model_used || modelToUse;
+      const profile = MODEL_PROFILES[actualModel] || {};
+      const emoji   = profile.emoji || "🤖";
+      const heb     = (ALL_MODELS[actualModel] || {}).heb || actualModel;
+      let meta = null;
+      if (selectedModel === "auto" && autoInfo) {
+        meta = `${emoji} ${heb} · AUTO→${autoInfo.method}`;
+        document.getElementById("model-badge").textContent = `auto · ${emoji}${heb}`;
+      } else if (data.model_used && data.model_used !== selectedModel) {
+        meta = `${emoji} ${heb} (${data.model_used})`;
+      }
       addMessage("bot", data.reply, meta);
       newH.push({ role: "assistant", content: data.reply });
       setHistory(newH);
@@ -1251,6 +2181,65 @@ function showToast(msg, type = "") {
   if (_toastTimeout) clearTimeout(_toastTimeout);
   _toastTimeout = setTimeout(() => { t.className = ""; }, 2200);
 }
+
+// ══ Report & Blocked Models ═══════════════════════════════════
+
+// שמור את המודל האחרון ששימש בכל שליחה
+window._lastUsedModel = null;
+
+/**
+ * doReport — מקביל ל-/report בפייתון.
+ * חוסם את המודל האחרון שנשלחה אליו הודעה.
+ */
+function doReport() {
+  const lastModel = window._lastUsedModel;
+  if (!lastModel || lastModel === "auto") {
+    showToast("⚠️ שלח הודעה קודם, ואז /דווח", "error");
+    return;
+  }
+  if (!ALL_MODELS[lastModel]) {
+    showToast("⚠️ לא ניתן לחסום מודל מערכת", "error");
+    return;
+  }
+
+  const blockInfo = blockModel(lastModel);
+  const info      = ALL_MODELS[lastModel] || {};
+  const heb       = info.heb || lastModel;
+  const provider  = info.provider || "?";
+  const scopeMsg  = blockInfo.scope === "provider"
+    ? "ספק " + provider + " נחסם ל-" + blockInfo.duration + "ש'"
+    : heb + " נחסם ל-" + blockInfo.duration + "ש'";
+
+  showToast("⛔ " + scopeMsg, "error");
+
+  // הצג הודעת אישור בצ'אט
+  addMessage("bot",
+    "⛔ **דיווח נרשם**\n" +
+    "מודל: `" + lastModel + "` (" + heb + ")\n" +
+    "ספק: " + provider + "\n" +
+    scopeMsg + "\n" +
+    "_הבחירה האוטומטית תעקוף מודל זה._"
+  );
+}
+
+
 </script>
+
+
+<!-- ══ MODAL: FAVORITES ════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-favorites">
+  <div class="modal" style="width:min(500px,94vw);">
+    <h3>⭐ מודלים מועדפים</h3>
+    <p style="font-size:0.83rem;color:var(--muted);margin-bottom:0.8rem;">
+      מודלים מועדפים יופיעו ראשונים בבר. לחיצה על מודל בבר שולחת את ההודעה הבאה אליו, ואז חוזרים אוטומטית ל-AUTO.
+    </p>
+    <div id="favorites-all-list"></div>
+    <div class="modal-actions">
+      <button class="btn-danger" onclick="clearAllFavorites()">✕ נקה הכל</button>
+      <button class="btn-secondary" onclick="closeModal('modal-favorites')">סגור</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
