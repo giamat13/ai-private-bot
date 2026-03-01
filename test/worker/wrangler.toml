@@ -1,28 +1,12 @@
-name = "ai-chat-api"
+name = "ai-private-bot"
 main = "src/index.js"
 compatibility_date = "2024-09-23"
 
-# ─── Workers Free plan: 100,000 req/day, 10ms CPU/req (plenty for API calls) ───
-
-# ─── Environment variables ───────────────────────────────────────────────────
-# Set secrets via CLI (never commit real keys!):
-#
-#   wrangler secret put SITE_PASSWORD
-#   wrangler secret put GROQ_API_KEY
-#   wrangler secret put CEREBRAS_API_KEY
-#   wrangler secret put GEMINI_API_KEY
-#   wrangler secret put MISTRAL_API_KEY
-#
-# Non-secret vars can go here:
+# ─── Production (branch: main) ───────────────────────────────────────────────
 [vars]
 ALLOWED_ORIGIN = "https://giamat13.github.io"
 
-# ─── Optional: KV for persistent cross-instance model blocking ───────────────
-# Uncomment if you want blocked models to persist across all Worker instances.
-# 1. Create the namespace: wrangler kv:namespace create BLOCKED_KV
-# 2. Paste the returned id below.
-# 3. In index.js, replace the in-memory _blocked Map with KV calls.
-#
-# [[kv_namespaces]]
-# binding = "BLOCKED_KV"
-# id = "YOUR_KV_NAMESPACE_ID"
+# ─── Preview (branch: test) ──────────────────────────────────────────────────
+[env.test]
+name = "ai-private-bot-test"
+vars = { ALLOWED_ORIGIN = "https://giamat13.github.io" }
